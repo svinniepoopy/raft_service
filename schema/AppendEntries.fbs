@@ -1,0 +1,25 @@
+
+// term
+// leaderid
+// prevLogIndex
+// prevLogTerm
+// entries [] -- empty for heartbeat
+// leaderCommit
+
+// -- returns 
+// term
+// success: bool
+
+table AppendEntriesRPC {
+    term:int;
+    leader_id:int;
+    prev_log_index:int;
+    prev_log_term:int;
+    entries:[string];
+    leader_commit:int;
+}
+
+table AppendEntriesResponse {
+    term:int;
+    success:bool;
+}
