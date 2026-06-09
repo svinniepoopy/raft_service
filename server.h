@@ -1,8 +1,18 @@
 #ifndef SERVER_H
 #define SERVER_H
 
+#include "state_data.h"
+
 class RaftService;
 class Cluster;
+
+using CandidateId = int;
+
+enum class State : uint8_t {
+  Follower,
+  Candidate,
+  Leader
+};
 
 class Server {
   public:
@@ -21,9 +31,10 @@ class Server {
     
     bool handleRequestVoteRPC();
 
-    State m_state;
-    std::unique_ptr<RaftService> m_praftservice;
-    std::shared_ptr<Cluster> m_pcluster;
+    State state_{Follower};
+    StateData data_;
+    std::unique_ptr<RaftService> praftservice_;
+    std::shared_ptr<Cluster> pcluster_;
 };
 
 #endif // SERVER_H

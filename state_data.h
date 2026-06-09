@@ -1,13 +1,12 @@
-#ifndef STATE_H
-#define STATE_H
+#ifndef STATEDATA_H
+#define STATEDATA_H
 
+#include <cstdint>
 #include <optional>
 
-namespace State {
-
-using CandidateId = int;
-
-struct ServerState {
+struct StateData {
+  std::string host_;
+  uint16_t port_;
 
   /* === persistent state ===
    * updated on stable storage before responding to RPCs
@@ -26,9 +25,6 @@ struct ServerState {
   int m_commit_index{};
 
   int m_last_applied{};
-
 };
 
-} // namespace state
-
-#endif // STATE_H
+#endif // STATEDATA_H
