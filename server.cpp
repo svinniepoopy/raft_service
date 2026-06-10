@@ -28,58 +28,81 @@ void Server::start() {
   }
 }
 
-//
-State Server::doFollowerLoop() {
-  auto pred = [&]() {
-    int n = ::recv(sockfd, buf, BUFSIZE);
-    recv_bytes = n; // TODO 
-    return n > 0;
-  };
+void Server::startTimer(State state) {
+  // TODO: make sure the timer thread will stop for certain events
+  auto timer_func = [&]() {
+    while (true) {
+      auto st = timer_cv.wait(timer_mutex, timeout_duration, []() {
+	  return false;
+	  });
 
-  while (state_ == Follower) {
-    auto status = cv_.wait_for(lock_, GetTimeout(), pred);
-    if (status == std::cv_status::timeout) {
+      if (st == std::cv_status::timeout) {
+	// TODO: this and GetNextState can update a shared variable
+	// the shared variable will denote the next state
+	// doTimeoutAction();
+	
+
+	// set timer expired and break
+	// TODO: timer_expired_ can be atomic
+	timer_expired_ = true;
+	break;
+      }
+    }
+  };
+  std::jthread thr{timer_func};
+}
+
+// follower loop
+// if timer expired then become candidate
+// else if message(s) received within timer
+// process messages from:
+//   - other candidates
+//   - leaders
+// messages may arrive concurrently
+State Server::doFollowerLoop() {
+  startTimer(State::Follower);
+  // receive operations should be non-blocking
+  // use select, poll or epoll?
+  // this should always be ready to receive messages
+  while (true) {
+    // TODO: make atomic
+    if (timer_expired_) {
       return State::Candidate;
-    } else {
-      // process received message
-      state_ = GetNextState();
+    }
+    ssize_t n = ::recv(sockfd_, buf, BUFBYTES); 
+
+    // TODO: process with std::async
+    message_t msg{buf, n};
+
+    auto f = std::async(std::launch::async, Parser{}, msg);
+    auto next_state = GetNextState(f.get());
+    if (next_state != State::Follower) {
+      return next_state;
     }
   }
 }
 
 void Server::doCandidateLoop() {
-  auto pred = [&]() {
-    int n = ::recv(sockfd, buf, BUFSIZE);
-    recv_bytes = n; // TODO 
-    return n > 0;
-  };
 
   // increment current term
-  while (state_ == Candidate) {
-    pCluster->broadcast(/*requestForVote*/);
-    auto status = cv_.wait_for(lock_, GetTimeout(), pred);
-    if (status == std::cv_status::timeout) {
-      state_ = Candidate;
-    } else {
-      // TODO process received messages
-      // - did it win the election?
-      // - did another server get elected as leader?
-      state_ = GetNextState();
-    }
+  while (true) {
+
   }
+  pCluster->broadcast(/*requestForVote*/);
 }
 
 void Server::doLeaderLoop() {
  auto pred = [&]() {
    // TODO leader specific recv
     int n = ::recv(sockfd, buf, BUFSIZE);
-    recv_bytes = n; // TODO 
+
     return n > 0;
   };
 
   // increment current term
+  pCluster->broadcast(/*AppendEntriesRPC*/);
   while (state_ == Leader) {
-    pCluster->broadcast(/*AppendEntriesRPC*/);
+
     auto status = cv_.wait_for(lock_, GetTimeout(), pred);
     if (status == std::cv_status::timeout) {
       return State::Follower;
