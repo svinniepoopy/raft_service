@@ -16,9 +16,6 @@ static_assert(FLATBUFFERS_VERSION_MAJOR == 25 &&
 struct RequestVoteRPC;
 struct RequestVoteRPCBuilder;
 
-struct RequestVoteReply;
-struct RequestVoteReplyBuilder;
-
 struct RequestVoteRPC FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
   typedef RequestVoteRPCBuilder Builder;
   enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
@@ -91,56 +88,36 @@ inline ::flatbuffers::Offset<RequestVoteRPC> CreateRequestVoteRPC(
   return builder_.Finish();
 }
 
-struct RequestVoteReply FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
-  typedef RequestVoteReplyBuilder Builder;
-  enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
-    VT_TERM = 4,
-    VT_VOTE_GRANTED = 6
-  };
-  int32_t term() const {
-    return GetField<int32_t>(VT_TERM, 0);
-  }
-  bool vote_granted() const {
-    return GetField<uint8_t>(VT_VOTE_GRANTED, 0) != 0;
-  }
-  template <bool B = false>
-  bool Verify(::flatbuffers::VerifierTemplate<B> &verifier) const {
-    return VerifyTableStart(verifier) &&
-           VerifyField<int32_t>(verifier, VT_TERM, 4) &&
-           VerifyField<uint8_t>(verifier, VT_VOTE_GRANTED, 1) &&
-           verifier.EndTable();
-  }
-};
+inline const RequestVoteRPC *GetRequestVoteRPC(const void *buf) {
+  return ::flatbuffers::GetRoot<RequestVoteRPC>(buf);
+}
 
-struct RequestVoteReplyBuilder {
-  typedef RequestVoteReply Table;
-  ::flatbuffers::FlatBufferBuilder &fbb_;
-  ::flatbuffers::uoffset_t start_;
-  void add_term(int32_t term) {
-    fbb_.AddElement<int32_t>(RequestVoteReply::VT_TERM, term, 0);
-  }
-  void add_vote_granted(bool vote_granted) {
-    fbb_.AddElement<uint8_t>(RequestVoteReply::VT_VOTE_GRANTED, static_cast<uint8_t>(vote_granted), 0);
-  }
-  explicit RequestVoteReplyBuilder(::flatbuffers::FlatBufferBuilder &_fbb)
-        : fbb_(_fbb) {
-    start_ = fbb_.StartTable();
-  }
-  ::flatbuffers::Offset<RequestVoteReply> Finish() {
-    const auto end = fbb_.EndTable(start_);
-    auto o = ::flatbuffers::Offset<RequestVoteReply>(end);
-    return o;
-  }
-};
+inline const RequestVoteRPC *GetSizePrefixedRequestVoteRPC(const void *buf) {
+  return ::flatbuffers::GetSizePrefixedRoot<RequestVoteRPC>(buf);
+}
 
-inline ::flatbuffers::Offset<RequestVoteReply> CreateRequestVoteReply(
-    ::flatbuffers::FlatBufferBuilder &_fbb,
-    int32_t term = 0,
-    bool vote_granted = false) {
-  RequestVoteReplyBuilder builder_(_fbb);
-  builder_.add_term(term);
-  builder_.add_vote_granted(vote_granted);
-  return builder_.Finish();
+template <bool B = false>
+inline bool VerifyRequestVoteRPCBuffer(
+    ::flatbuffers::VerifierTemplate<B> &verifier) {
+  return verifier.template VerifyBuffer<RequestVoteRPC>(nullptr);
+}
+
+template <bool B = false>
+inline bool VerifySizePrefixedRequestVoteRPCBuffer(
+    ::flatbuffers::VerifierTemplate<B> &verifier) {
+  return verifier.template VerifySizePrefixedBuffer<RequestVoteRPC>(nullptr);
+}
+
+inline void FinishRequestVoteRPCBuffer(
+    ::flatbuffers::FlatBufferBuilder &fbb,
+    ::flatbuffers::Offset<RequestVoteRPC> root) {
+  fbb.Finish(root);
+}
+
+inline void FinishSizePrefixedRequestVoteRPCBuffer(
+    ::flatbuffers::FlatBufferBuilder &fbb,
+    ::flatbuffers::Offset<RequestVoteRPC> root) {
+  fbb.FinishSizePrefixed(root);
 }
 
 #endif  // FLATBUFFERS_GENERATED_REQUESTVOTE_H_

@@ -1,0 +1,6 @@
+table AppendEntriesRPCReply {
+    term:int;
+    success:bool;
+}
+
+root_type AppendEntriesRPCReply;

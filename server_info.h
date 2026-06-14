@@ -3,6 +3,6 @@
 #include <string>
 
 struct ServerInfo {
-    std::string ipv4_;
+    std::string ip_;
     uint16_t port_;
 };

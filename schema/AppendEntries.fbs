@@ -19,7 +19,4 @@ table AppendEntriesRPC {
     leader_commit:int;
 }
 
-table AppendEntriesResponse {
-    term:int;
-    success:bool;
-}
+root_type AppendEntriesRPC;

@@ -16,9 +16,6 @@ static_assert(FLATBUFFERS_VERSION_MAJOR == 25 &&
 struct AppendEntriesRPC;
 struct AppendEntriesRPCBuilder;
 
-struct AppendEntriesResponse;
-struct AppendEntriesResponseBuilder;
-
 struct AppendEntriesRPC FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
   typedef AppendEntriesRPCBuilder Builder;
   enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
@@ -132,56 +129,36 @@ inline ::flatbuffers::Offset<AppendEntriesRPC> CreateAppendEntriesRPCDirect(
       leader_commit);
 }
 
-struct AppendEntriesResponse FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
-  typedef AppendEntriesResponseBuilder Builder;
-  enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
-    VT_TERM = 4,
-    VT_SUCCESS = 6
-  };
-  int32_t term() const {
-    return GetField<int32_t>(VT_TERM, 0);
-  }
-  bool success() const {
-    return GetField<uint8_t>(VT_SUCCESS, 0) != 0;
-  }
-  template <bool B = false>
-  bool Verify(::flatbuffers::VerifierTemplate<B> &verifier) const {
-    return VerifyTableStart(verifier) &&
-           VerifyField<int32_t>(verifier, VT_TERM, 4) &&
-           VerifyField<uint8_t>(verifier, VT_SUCCESS, 1) &&
-           verifier.EndTable();
-  }
-};
+inline const AppendEntriesRPC *GetAppendEntriesRPC(const void *buf) {
+  return ::flatbuffers::GetRoot<AppendEntriesRPC>(buf);
+}
 
-struct AppendEntriesResponseBuilder {
-  typedef AppendEntriesResponse Table;
-  ::flatbuffers::FlatBufferBuilder &fbb_;
-  ::flatbuffers::uoffset_t start_;
-  void add_term(int32_t term) {
-    fbb_.AddElement<int32_t>(AppendEntriesResponse::VT_TERM, term, 0);
-  }
-  void add_success(bool success) {
-    fbb_.AddElement<uint8_t>(AppendEntriesResponse::VT_SUCCESS, static_cast<uint8_t>(success), 0);
-  }
-  explicit AppendEntriesResponseBuilder(::flatbuffers::FlatBufferBuilder &_fbb)
-        : fbb_(_fbb) {
-    start_ = fbb_.StartTable();
-  }
-  ::flatbuffers::Offset<AppendEntriesResponse> Finish() {
-    const auto end = fbb_.EndTable(start_);
-    auto o = ::flatbuffers::Offset<AppendEntriesResponse>(end);
-    return o;
-  }
-};
+inline const AppendEntriesRPC *GetSizePrefixedAppendEntriesRPC(const void *buf) {
+  return ::flatbuffers::GetSizePrefixedRoot<AppendEntriesRPC>(buf);
+}
 
-inline ::flatbuffers::Offset<AppendEntriesResponse> CreateAppendEntriesResponse(
-    ::flatbuffers::FlatBufferBuilder &_fbb,
-    int32_t term = 0,
-    bool success = false) {
-  AppendEntriesResponseBuilder builder_(_fbb);
-  builder_.add_term(term);
-  builder_.add_success(success);
-  return builder_.Finish();
+template <bool B = false>
+inline bool VerifyAppendEntriesRPCBuffer(
+    ::flatbuffers::VerifierTemplate<B> &verifier) {
+  return verifier.template VerifyBuffer<AppendEntriesRPC>(nullptr);
+}
+
+template <bool B = false>
+inline bool VerifySizePrefixedAppendEntriesRPCBuffer(
+    ::flatbuffers::VerifierTemplate<B> &verifier) {
+  return verifier.template VerifySizePrefixedBuffer<AppendEntriesRPC>(nullptr);
+}
+
+inline void FinishAppendEntriesRPCBuffer(
+    ::flatbuffers::FlatBufferBuilder &fbb,
+    ::flatbuffers::Offset<AppendEntriesRPC> root) {
+  fbb.Finish(root);
+}
+
+inline void FinishSizePrefixedAppendEntriesRPCBuffer(
+    ::flatbuffers::FlatBufferBuilder &fbb,
+    ::flatbuffers::Offset<AppendEntriesRPC> root) {
+  fbb.FinishSizePrefixed(root);
 }
 
 #endif  // FLATBUFFERS_GENERATED_APPENDENTRIES_H_

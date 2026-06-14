@@ -1,0 +1,6 @@
+table RequestVoteRPCReply {
+    term:int;
+    vote_granted:bool;
+}
+
+root_type RequestVoteRPCReply;
