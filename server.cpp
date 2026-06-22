@@ -10,11 +10,10 @@
 #include <mutex>
 #include <sstream>
 
-#include
 #include <chrono>
 #include <cstdint>
 #include <cstdio>
-#include <cstdlib
+#include <cstdlib>
 #include <future>
 #include <memory>
 #include <random>
@@ -44,12 +43,17 @@ std::vector<ServerInfo> ExtractServerInfo(const std::string& si) {
   size_t i{};
 
   std::istringstream istr{si};
-  for (std::string line; std::getline(istr, line, ':');) {
-
+  std::vector<ServerInfo> infos;
+  for (std::string line; std::getline(istr, line, ',');) {
+    auto delim_pos = line.find(':');
+    std::string ip = line.substr(0, delim_pos);
+    uint16_t port = line.substr(delim_pos);
+    infos.emplace_back(std::move(ip), port);
   }
+  return infos;
 }
 
-} // namespace
+} // end anonymous namespace
 
 Server::Server(int cluster_size, std::string host, std::string port,
                std::string server_info)
