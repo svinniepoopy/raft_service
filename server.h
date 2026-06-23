@@ -28,6 +28,13 @@ class Server {
     void sendRequestVote(size_t /*server_idx*/)
     void sendHeartBeat(size_t /*server_idx*/);
 
+    void sendRequestVoteReply(size_t /*server_idx*/);
+    void sendAppendEntriesReply(size_t /*server_idx*/);
+
+    bool hasHeartBeatInResponse(std::string_view buf);
+    bool hasNewLeaderInResponse(std::string_view buf);
+    bool hasVoteInRequestVoteInResponse(std::string_view buf);
+
     State getNextState(void* /*buf*/, size_t /*n*/, SenderInfo);
 
     // timer data members

@@ -18,6 +18,8 @@ enum class State : uint8_t { Follower, Candidate, Leader };
 
 struct RaftState {
 
+  int id_;
+
   State state_{State::Follower};
 
   /* === persistent state ===
