@@ -3,33 +3,27 @@
 
 #include "raft_state.h"
 
-#include <utility>
-
-class AppendEntriesRPC;
-class RequestVoteRPC;
+#include <string_view>
 
 class RaftService {
 public:
-  std::pair<RaftState, RaftReply> GetNextStateAppendEntries(AppendEntriesRPC*,
-                                                            RaftState);
-  std::pair<RaftState, RaftReply> GetNextStateRequestVote(RequestVoteRPC*,
-                                                          RaftState);
+  // request vote
+  bool hasRequestVoteRequest(std::string_view);
+  bool hasRequestVoteReply(std::string_view);
+  
+  bool hasHeartBeatInRequest(std::string_view);
+  bool hasNewLeaderInResponse(std::string_view);
 
-  bool hasVoteInRequestVoteReply(std::string_view buf);
-  bool hasHeartBeatResponse(std::string_view buf);
+  // append entries
+  bool hasAppendEntriesRequest(std::string_view);
+  bool hasAppendEntriesReply(std::string_view);
 
-  const RaftState& state() const {
-    return raftstate_;
-  }
+  const RaftState &state() const { return raftstate_; }
 
-  RaftState& state() {
-    return raftstate_;
-  }
-
-  RaftState raftstate_{State::Follower};
+  RaftState &state() { return raftstate_; }
 
 private:
-    RaftState raftstate_{State::Follower};
+  RaftState raftstate_{State::Follower};
 };
 
 #endif // RAFT_SERVICE_H

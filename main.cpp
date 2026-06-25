@@ -5,6 +5,7 @@
 
 #include <fstream>
 #include <iostream>
+#include <string>
 #include <string_view>
 #include <vector>
 
@@ -30,7 +31,7 @@ std::string ParseConfigFile(const char* file_name) {
 
 int main(int argc, char** argv) {
 
-    if (argc < 2) {
+    if (argc != 3) {
         std::cerr << "Usage:\n";
         std::cerr << "raft-runner <num-servers> <config-file-name>"
         return 1;    
@@ -41,13 +42,12 @@ int main(int argc, char** argv) {
     std::string hosts{ParseConfigFile(argv[2])};
 
     static char* newargv[] = {
-        nullptr, 
+        "server", 
         argv[1],
         nullptr,
         hosts.data(),
         nullptr
     };
-    newargv[0] = "server";
     static char* newenviron[] = {nullptr};
 
     std::vector<pid_t> childpids;

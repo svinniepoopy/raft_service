@@ -12,7 +12,7 @@ class Cluster;
 class Server {
   public:
     Server(int host, int port, std::shared_ptr<Cluster> pcluster);
-
+    ~Server();
   private:
     // server main loop
     void start();
@@ -22,23 +22,20 @@ class Server {
     State doCandidateLoop();
     State doLeaderLoop();
 
+    // loop internal methods
     void doCandidateRequestVotes();
     void doCandidateListen();
 
-    void sendRequestVote(size_t /*server_idx*/)
+    // senders
+    void sendRequestVote(size_t /*server_idx*/);
+    void sendRequestVoteResponse(SenderInfo);
+
     void sendHeartBeat(size_t /*server_idx*/);
+    void sendHeartBeatResponse(SenderInfo);
 
     void sendRequestVoteReply(size_t /*server_idx*/);
     void sendAppendEntriesReply(size_t /*server_idx*/);
 
-    bool hasHeartBeatInResponse(std::string_view buf);
-    bool hasNewLeaderInResponse(std::string_view buf);
-    bool hasVoteInRequestVoteInResponse(std::string_view buf);
-
-    State getNextState(void* /*buf*/, size_t /*n*/, SenderInfo);
-
-    // timer data members
-    bool timer_expired_{false};
     std::condition_variable_any timer_cv_;
     std::mutex timer_mutex_;
 
@@ -49,15 +46,11 @@ class Server {
     // used in the leader loop
     std::condition_variable leader_loop_cv_;
     std::mutex leader_loop_mutex_; 
-    // true if a message was received before timer expiry
-    bool has_msg_{false};
-
 
     int sockfd_;
     std::unique_ptr<RaftService> praftservice_;
-    std::shared_ptr<Cluster> pcluster_;
 
-    size_t numservers_;
+    int numservers_;
     std::vector<ServerInfo> servers_;
 };
 

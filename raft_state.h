@@ -9,11 +9,6 @@
 
 using CandidateId = int;
 
-struct SenderInfo {
-  struct sockaddr_storage* peer_addr;
-  socklen_t peer_addrlen;
-};
-
 enum class State : uint8_t { Follower, Candidate, Leader };
 
 struct RaftState {
