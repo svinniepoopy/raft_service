@@ -272,6 +272,17 @@ State Server::doLeaderLoop() {
 
     size_t num_responses{};
     const size_t required_responses = numservers_ / 2 + 1;
+
+    int n = ::recvfrom(sockfd_, buf, BUFSIZE, 0,
+      (struct sockaddr *)&peer_addr, &peer_addrlen); 
+
+    
+    auto recv_func = [&]() {
+      return n > 0 && praftservice_->hasHeartBeatInResponse(std::string_view{buf, n});
+    };
+
+    auto recv_fut = std::async(std::launch::async, recv_func);
+
     // gather votes before timer expiry
     {
       std::unique_lock lck{leader_loop_mutex_};
