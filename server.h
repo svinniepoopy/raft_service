@@ -4,14 +4,17 @@
 #include "raft_state.h"
 
 class RaftService;
-class Cluster;
+class SenderInfo;
 
 #include <condition_variable>
 #include <memory>
+#include <mutex>
+#include <string>
+#include <vector>
 
 class Server {
   public:
-    Server(int host, int port, std::shared_ptr<Cluster> pcluster);
+    Server(int cluster_size, int server_idx, std::string servers) { 
     ~Server();
   private:
     // server main loop
@@ -28,13 +31,10 @@ class Server {
 
     // senders
     void sendRequestVote(size_t /*server_idx*/);
-    void sendRequestVoteResponse(SenderInfo);
+    void sendRequestVoteResponse(std::string_view request, const SenderInfo&);
 
     void sendHeartBeat(size_t /*server_idx*/);
-    void sendHeartBeatResponse(SenderInfo);
-
-    void sendRequestVoteReply(size_t /*server_idx*/);
-    void sendAppendEntriesReply(size_t /*server_idx*/);
+    void sendHeartBeatResponse(std::string_view request, const SenderInfo);
 
     std::condition_variable_any timer_cv_;
     std::mutex timer_mutex_;

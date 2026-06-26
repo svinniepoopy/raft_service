@@ -161,10 +161,10 @@ State Server::doFollowerLoop() {
         SenderInfo si{.peer_addr = &peer_addr, .peer_addrlen = peer_addrlen};
 
         if (praftservice_->hasHasHeartBeatInRequest(req)) {          
-          sendHeartBeatResponse(si);
+          sendHeartBeatResponse(req, si);
           timer_cv_.notify_one();
         } else if (praftservice_->hasRequestVoteInRequest(req)) {
-          sendRequestVoteResponse(si);
+          sendRequestVoteResponse(req, si);
           timer_cv_.notify_one();
         }
       };
@@ -310,14 +310,6 @@ State Server::doLeaderLoop() {
 /* ================ END LEADER ================= */
 
 // ================= SENDERS ================= */
-void Server::sendRequestVoteResponse(size_t server_idx) {
-
-}
-
-void Server::sendAppendEntriesResponse(size_t server_idx) {
-
-}
-
 /*
 To begin an election, a follower increments its current term and transitions to
 candidate state. It then votes for itself and issues RequestVote RPCs in parallel
@@ -334,7 +326,7 @@ in a given term, on a first-come-first-served basis.
 Once a candidate wins an election, it becomes leader. It then sends heartbeat messages
 to all of the other servers to establish its authority and prevent new elections.
 */
-void Server::sendRequestVote(SenderInfo sender_info) {
+void Server::sendRequestVote(const SenderInfo& sender_info) {
   char host[NI_MAXHOST], service[NI_MAXSERV];
   struct sockaddr_storage peer_addr;
   socklen_t peer_addrlen = sizeof(peer_addr);
@@ -355,6 +347,36 @@ void Server::sendRequestVote(SenderInfo sender_info) {
   if (sendto(sockfd_, buf, size, 0, (struct sockaddr*)&peer_addr, peer_addrlen) != size) {
     perror("sendto");
     fprintf(stderr, "error sending REQUEST VOTE");
+  }
+}
+
+void Server::sendRequestVoteResponse(std::string_view request, const SenderInfo& sender_info) {
+  const RequestVoteRPC* preq = GetRequestVoteRPC(static_cast<const void*>(request.data()));
+
+  if (!preq) {
+    std::cerr << "sendRequestVoteResponse preq null\n";
+  }
+  flatbuffers::FlatBufferBuilder fbb{1024};
+  RequestVoteRPCReplyBuilder reply_builder{fbb};
+
+  int curr_term = praftservice_->state()->current_term_;
+  if (preq->term() < curr_term) {
+    reply_builder.add_vote_granted(false);
+  } else  if ((!praftservice_->state().voted_for_ 
+      || *praftservice_->state().voted_for_ == preq->candidate_id()) &&
+      preq->last_log_index() >= praftservice_->state().commit_index_) {
+        reply_builder.add_vote_granted(true);
+  }
+  
+  auto off = reply_builder.Finish();
+  
+  uint8_t* reply_buf = fbb.GetBufferPointer();
+  int size = fbb.GetSize();
+  
+  int ret = ::sendto(sockfd_, reply_buf, size, 0,
+    (struct sockaddr*)sender_info.peer_addr, sender_info.peer_addr);
+  if (ret != size) {
+    std::cerr << "error sending heartbeat response\n";
   }
 }
 
@@ -379,5 +401,35 @@ void Server::sendHeartBeat(size_t server_idx) {
   if (sendto(sockfd_, buf, size, 0, (struct sockaddr*)&peer_addr, peer_addrlen) != size) {
     perror("sendto");
     fprintf(stderr, "error sending REQUEST VOTE");
+  }
+}
+
+void Server::sendHeartBeatResponse(std::string_view request, const SenderInfo& sender_info) {
+  const void* pbuf = static_cast<const void*>(request.data());  
+  const AppendEntriesRPC* preq = GetAppendEntriesRPC(pbuf);
+
+  if (!preq) {
+    std::cerr << "request not of type sendHeartBeatResponse\n";
+    return;
+  }
+
+  flatbuffers::FlatBufferBuilder fbb{1024};
+  AppendEntriesRPCReplyBuilder reply_builder{fbb};
+
+  int curr_term = praftservice_->state()->current_term_
+  if (preq->term() < curr_term) { 
+    reply_builder.add_term(curr_term);
+    reply_builder.add_success(false);
+  }
+
+  auto off = reply_builder.Finish();
+  
+  uint8_t* reply_buf = fbb.GetBufferPointer();
+  int size = fbb.GetSize();
+  
+  int ret = ::sendto(sockfd_, reply_buf, size, 0,
+    (struct sockaddr*)sender_info.peer_addr, sender_info.peer_addr);
+  if (ret != size) {
+    std::cerr << "error sending heartbeat response\n";
   }
 }

@@ -1,8 +1,6 @@
-#ifndef STATEDATA_H
-#define STATEDATA_H
+#ifndef RAFT_STATE_H 
+#define RAFT_STATE_H 
 
-#include "generated/AppendEntriesReply_generated.h"
-#include "generated/RequestVoteReply_generated.h"
 #include <cstdint>
 #include <optional>
 #include <sys/socket.h>
@@ -26,6 +24,7 @@ struct RaftState {
   // 
   std::optional<CandidateId> voted_for_;
 
+  // TODO: uncomment
   // std::vector<Entry> entries;
 
   /* end perisistent state */
@@ -36,16 +35,5 @@ struct RaftState {
   int last_applied_{};
 };
 
-struct RaftReply {
-};
 
-struct RequestVoteRPCReply_T : RaftReply {
-  RequestVoteRPCReply reply;
-};
-
-struct AppendEntriesRPCReply_T : RaftReply {
-  AppendEntriesRPCReply reply;
-}
-
-
-#endif // STATEDATA_H
+#endif // RAFT_STATE_H 
