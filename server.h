@@ -2,9 +2,9 @@
 #define SERVER_H
 
 #include "raft_state.h"
+#include "server_info.h"
 
 class RaftService;
-class SenderInfo;
 
 #include <condition_variable>
 #include <memory>
@@ -14,7 +14,7 @@ class SenderInfo;
 
 class Server {
   public:
-    Server(int cluster_size, int server_idx, std::string servers) { 
+    Server(int cluster_size, int server_idx, std::string servers); 
     ~Server();
   private:
     // server main loop
@@ -30,11 +30,13 @@ class Server {
     void doCandidateListen();
 
     // senders
-    void sendRequestVote(size_t /*server_idx*/);
+    void sendRequestVote(const ServerInfo&);
     void sendRequestVoteResponse(std::string_view request, const SenderInfo&);
 
     void sendHeartBeat(size_t /*server_idx*/);
-    void sendHeartBeatResponse(std::string_view request, const SenderInfo);
+    void sendHeartBeatResponse(std::string_view request, const SenderInfo&);
+
+    int ReceiveHelper(int sockfd, char* buf, size_t size, SenderInfo& si);
 
     std::condition_variable_any timer_cv_;
     std::mutex timer_mutex_;

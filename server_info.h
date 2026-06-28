@@ -1,3 +1,5 @@
+#ifndef SERVER_INFO_H
+#define SERVER_INFO_H
 
 #include <cstdint>
 #include <string>
@@ -14,3 +16,5 @@ struct SenderInfo {
   struct sockaddr_storage* peer_addr;
   socklen_t peer_addrlen;
 };
+
+#endif // SERVER_INFO_H

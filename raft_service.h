@@ -12,7 +12,10 @@ public:
   bool hasRequestVoteReply(std::string_view);
   
   bool hasHeartBeatInRequest(std::string_view);
+  bool hasHeartBeatInResponse(std::string_view);
+  
   bool hasNewLeaderInResponse(std::string_view);
+  bool hasVoteInRequestVoteResponse(std::string_view);
 
   // append entries
   bool hasAppendEntriesRequest(std::string_view);
@@ -23,7 +26,7 @@ public:
   RaftState &state() { return raftstate_; }
 
 private:
-  RaftState raftstate_{State::Follower};
+  RaftState raftstate_{}; // default follower
 };
 
 #endif // RAFT_SERVICE_H

@@ -11,7 +11,7 @@
 
 #include <unistd.h>
 #include <sys/types.h>
-
+#include <sys/wait.h>
 
 std::string ParseConfigFile(const char* file_name) {
     std::ifstream ifs{file_name};
@@ -23,7 +23,7 @@ std::string ParseConfigFile(const char* file_name) {
     std::string hosts;
     if (!(ifs >> hosts)) {
         std::cerr << "fname: can't read\n";
-        std::exit(exit(EXIT_FAILURE));
+        std::exit(EXIT_FAILURE);
     }
     
     return hosts;
@@ -33,7 +33,7 @@ int main(int argc, char** argv) {
 
     if (argc != 3) {
         std::cerr << "Usage:\n";
-        std::cerr << "raft-runner <num-servers> <config-file-name>"
+        std::cerr << "raft-runner <num-servers> <config-file-name>";
         return 1;    
     }
 
