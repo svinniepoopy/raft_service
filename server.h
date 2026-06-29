@@ -49,6 +49,7 @@ class Server {
     std::condition_variable leader_loop_cv_;
     std::mutex leader_loop_mutex_; 
 
+    int port_;
     int sockfd_;
     std::unique_ptr<RaftService> praftservice_;
 

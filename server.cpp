@@ -3,7 +3,6 @@
 #include "raft_state.h"
 #include "server_info.h"
 
-// #include "flatbuffers/include/flatbuffers//flatbuffers.h"
 #include "generated/AppendEntriesReply_generated.h"
 #include "generated/AppendEntries_generated.h"
 #include "generated/RequestVoteReply_generated.h"
@@ -18,6 +17,7 @@
 #include <chrono>
 #include <future>
 #include <memory>
+#include <netinet/in.h>
 #include <random>
 #include <sstream>
 #include <string>
@@ -34,7 +34,7 @@
 using namespace std::chrono_literals;
 
 namespace {
-size_t BUFSIZE = 1024;
+constexpr size_t BUFSIZE = 1024;
 std::uniform_int_distribution<> dist(150, 300);
 std::random_device rd{};
 std::mt19937 gen(rd());
@@ -60,6 +60,7 @@ Server::Server(int cluster_size, int server_idx, std::string server_info)
     numservers_{cluster_size} {
   
   servers_ = ExtractServerInfo(server_info);
+  port_ = servers_[server_idx].port_;
 
   std::string port{std::to_string(servers_[server_idx].port_)};
 
@@ -98,6 +99,7 @@ Server::Server(int cluster_size, int server_idx, std::string server_info)
   // TODO install a signal handler from cluster
   // listen to sigquit, sigterm
 
+  std::println("[server@{}] start. listen at sock={}", port, sockfd_);
   start();
 }
 
@@ -123,6 +125,7 @@ void Server::start() {
 
 /* ================== FOLLOWER ============== */
 State Server::doFollowerLoop() {
+  std::println("[server@{}]: enter doFollowerLoop", port_);
   while (true) {
     struct sockaddr_storage peer_addr;
     socklen_t peer_addrlen{sizeof(peer_addr)};
@@ -160,9 +163,12 @@ State Server::doFollowerLoop() {
       };
 
       [[maybe_unused]] auto req_fut = std::async(std::launch::async, async_func);
-
-    } else { 
-      return State::Candidate;
+      std::println("[server@{}]: state = FOLLOWER, current_term={}",
+        port_,
+        praftservice_->state().current_term_);
+    } else {
+      std::println("[server@{}]: recvd n<0. change state = Candidate", port_);
+      break;
     }   
   }
   return State::Candidate;
@@ -177,6 +183,10 @@ int Server::ReceiveHelper(int sockfd, char* buf, size_t size, SenderInfo& si) {
 /* ================ START CANDIDATE ============== */
 void Server::doCandidateRequestVotes() {
   const size_t required_votes = numservers_ / 2 + 1;
+
+  std::println("[server@{}]: start RequestVote. term={}",
+    port_,
+    praftservice_->state().current_term_);
 
   while (true) {
     for (int i{}; i < numservers_; ++i) {
@@ -212,6 +222,9 @@ void Server::doCandidateRequestVotes() {
         praftservice_->state().state_ = State::Leader;
       }
       if (num_votes >= required_votes) {
+        std::println("[server@{}]: RequestVotes complete. change state to Leader. term={}",
+          port_,
+          praftservice_->state().current_term_);
         break;
       }
     }
@@ -238,6 +251,7 @@ void Server::doCandidateListen() {
         praftservice_->state().state_ = State::Follower;
       }
       candidate_loop_cv_.notify_one();
+      break;
     }
   }
 }
@@ -245,6 +259,10 @@ void Server::doCandidateListen() {
 State Server::doCandidateLoop() {
   ++praftservice_->state().current_term_;
   praftservice_->state().state_ = State::Candidate;
+
+  std::println("[server@{}]: enter doCandidateLoop. term={}",
+    port_,
+    praftservice_->state().current_term_);
 
   std::jthread request_votes_thr{&Server::doCandidateRequestVotes, this};
   std::jthread listener_thr{&Server::doCandidateListen, this};
@@ -257,6 +275,11 @@ State Server::doCandidateLoop() {
 
   request_votes_thr.join();
   listener_thr.join();
+
+  std::println("[server@{}]: finish doCandidateLoop. term={}, state={}",
+    port_,
+    praftservice_->state().current_term_,
+    praftservice_->state().state_);
   return praftservice_->state().state_;
 }
 /* ================ END CANDIDATE ============== */
@@ -267,6 +290,10 @@ Upon election: send initial empty AppendEntries RPCs (heartbeat) to each server
 repeat during idle periods to prevent election timeouts
 */
 State Server::doLeaderLoop() {
+  std::println("[server@{}]: enter doLeaderLoop. term={}",
+    port_,
+    praftservice_->state().current_term_);
+
   while (true) {    
     // timeout duration is fixed between a set of heartbeats 
     std::chrono::milliseconds timeout_duration{GetRandomDuration()};
@@ -301,10 +328,18 @@ State Server::doLeaderLoop() {
       
       auto recv_fut = std::async(std::launch::async, recv_func);
       if (num_responses >= required_votes) {
+        std::println("[server@{}]: Leader: GOT QUORUM. term={}",
+          port_,
+          praftservice_->state().current_term_);
+
         break;
       }
     } 
     if (!has_heartbeats) {
+      std::println("[server@{}]: Leader: !!NO QUORUM!!. Change to Follower term={}",
+          port_,
+          praftservice_->state().current_term_);
+
       return State::Follower;
     }
   }
@@ -330,16 +365,16 @@ Once a candidate wins an election, it becomes leader. It then sends heartbeat me
 to all of the other servers to establish its authority and prevent new elections.
 */
 void Server::sendRequestVote(const ServerInfo& server_info) {
-  struct hostent *he;
-  if ((he = gethostbyname("localhost")) == NULL) { // get the host info
-    perror("gethostbyname");
-    std::exit(EXIT_FAILURE);
-  }
+  std::println("[server@{}]: sendRequestVote to={}. term={}",
+    port_,
+    server_info.port_,
+    praftservice_->state().current_term_);
+
   struct sockaddr_in their_addr; // connector's address info
+  memset(&their_addr, 0, sizeof(their_addr);
   their_addr.sin_family = AF_INET;     // host byte order
   their_addr.sin_port = htons(server_info.port_); // network byte order
-  their_addr.sin_addr = *((struct in_addr *)he->h_addr);
-  memset(their_addr.sin_zero, '\0', sizeof their_addr.sin_zero);
+  their_addr.sin_addr.s_addr = htonl(INADDR_ANY); 
 
   const auto vote_term = praftservice_->state().current_term_;
 
@@ -361,9 +396,15 @@ void Server::sendRequestVote(const ServerInfo& server_info) {
 }
 
 void Server::sendRequestVoteResponse(std::string_view request, const SenderInfo& sender_info) {
+  std::println("[server@{}]: sendRequestVoteResponse to={}. term={}",
+    port_,
+    sender_info.port_,
+    praftservice_->state().current_term_);
+
   const RequestVoteRPC* preq = GetRequestVoteRPC(static_cast<const void*>(request.data()));
   if (!preq) {
     std::cerr << "sendRequestVoteResponse preq null\n";
+    return;
   }
 
   flatbuffers::FlatBufferBuilder fbb{1024};
@@ -391,6 +432,12 @@ void Server::sendRequestVoteResponse(std::string_view request, const SenderInfo&
 }
 
 void Server::sendHeartBeat(size_t server_idx) {
+  auto server_info = servers_[server_idx];
+  std::println("[server@{}]: sendHeartBeat to={}. term={}",
+    port_,
+    server_info.port_,
+    praftservice_->state().current_term_);
+
   flatbuffers::FlatBufferBuilder fbb(1024);
 
   auto off = CreateAppendEntriesRPC(
@@ -400,21 +447,12 @@ void Server::sendHeartBeat(size_t server_idx) {
 
   uint8_t* buf = fbb.GetBufferPointer();
   int size = fbb.GetSize();
-
-  auto server_info = servers_[server_idx];
-
-  struct hostent *he;
-  if ((he = gethostbyname("localhost")) == NULL) { // get the host info
-    perror("gethostbyname");
-    std::exit(EXIT_FAILURE);
-  }
+  
   struct sockaddr_in their_addr; // connector's address info
+  memset(&their_addr, 0, sizeof(their_addr);
   their_addr.sin_family = AF_INET;     // host byte order
   their_addr.sin_port = htons(server_info.port_); // network byte order
-  their_addr.sin_addr = *((struct in_addr *)he->h_addr);
-  memset(their_addr.sin_zero, '\0', sizeof their_addr.sin_zero);
-
-  //FillPeerInfo(si, &peer_addr);
+  their_addr.sin_addr.s_addr = htonl(INADDR_ANY); // network byte order 
 
   if (sendto(sockfd_, buf, size, 0, (struct sockaddr*)&their_addr, sizeof(their_addr)) != size) {
     perror("sendto");
@@ -423,6 +461,12 @@ void Server::sendHeartBeat(size_t server_idx) {
 }
 
 void Server::sendHeartBeatResponse(std::string_view request, const SenderInfo& sender_info) {
+
+  std::println("[server@{}]: sendHeartBeatResponse to={}. term={}",
+    port_,
+    sender_info.port_,
+    praftservice_->state().current_term_);
+
   const void* pbuf = static_cast<const void*>(request.data());  
   const AppendEntriesRPC* preq = GetAppendEntriesRPC(pbuf);
 

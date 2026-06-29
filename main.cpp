@@ -2,9 +2,11 @@
 
 #include <cerrno>
 #include <cstdlib>
+#include <cstdio>
 
 #include <fstream>
 #include <iostream>
+#include <print>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -37,9 +39,11 @@ int main(int argc, char** argv) {
         return 1;    
     }
 
-    const int num_servers{std::atoi(argv[1])}; 
+    const int num_servers{std::atoi(argv[1])};
+    std::println("[main]: num_server={}", num_servers);
 
     std::string hosts{ParseConfigFile(argv[2])};
+    std::println("[main]: cluster hosts={}", hosts);
 
     static char* newargv[] = {
         "server", 
@@ -51,6 +55,7 @@ int main(int argc, char** argv) {
     static char* newenviron[] = {nullptr};
 
     std::vector<pid_t> childpids;
+    char idxbuf[1] = {'0'};
     for (int i{}; i<num_servers; ++i) {
         pid_t pid = fork();
 
@@ -58,8 +63,8 @@ int main(int argc, char** argv) {
             perror("fork");
             std::exit(EXIT_FAILURE);
         }
-        std::string sidx{std::to_string(i)};
-        newargv[2] = sidx.data();
+        std::snprintf(idxbuf, 1,  "%d", i);
+        newargv[2] = idxbuf; 
         if (pid == 0) {
             int ret = execve(newargv[0], newargv, newenviron);
             if (ret == -1) {
@@ -67,6 +72,7 @@ int main(int argc, char** argv) {
                 std::exit(EXIT_FAILURE);
             }
         } else {
+            std::println("[main] created process={}", pid);
             childpids.push_back(pid);
         }
     }
@@ -81,10 +87,11 @@ int main(int argc, char** argv) {
             }
 
             if (WIFEXITED((wstatus))) {
-                std::cerr << "exited status=" << WEXITSTATUS(wstatus) << std::endl;
+                std::println("[main] pid={} exited. status={}", pid, WEXITSTATUS(wstatus));
             }
         } while (!WIFEXITED(wstatus) && !WIFSIGNALED(wstatus));
     }    
 
+    std::println("[main]: exit");
     return 0;
 }
