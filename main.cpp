@@ -1,5 +1,3 @@
-#include "server.h"
-
 #include <cerrno>
 #include <cstdlib>
 #include <cstdio>
@@ -55,7 +53,6 @@ int main(int argc, char** argv) {
     static char* newenviron[] = {nullptr};
 
     std::vector<pid_t> childpids;
-    char idxbuf[1] = {'0'};
     for (int i{}; i<num_servers; ++i) {
         pid_t pid = fork();
 
@@ -63,8 +60,9 @@ int main(int argc, char** argv) {
             perror("fork");
             std::exit(EXIT_FAILURE);
         }
-        std::snprintf(idxbuf, 1,  "%d", i);
-        newargv[2] = idxbuf; 
+
+        std::string sidx{std::to_string(i)};
+        newargv[2] = sidx.data(); 
         if (pid == 0) {
             int ret = execve(newargv[0], newargv, newenviron);
             if (ret == -1) {

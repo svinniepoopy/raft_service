@@ -53,6 +53,7 @@ class Server {
     int sockfd_;
     std::unique_ptr<RaftService> praftservice_;
 
+    int id_;
     int numservers_;
     std::vector<ServerInfo> servers_;
 };

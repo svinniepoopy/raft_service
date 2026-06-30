@@ -26,6 +26,7 @@
 #include <condition_variable>
 #include <mutex>
 #include <sstream>
+#include <print>
 
 #include <netdb.h>
 #include <sys/socket.h>
@@ -47,11 +48,21 @@ std::vector<ServerInfo> ExtractServerInfo(const std::string& si) {
   std::vector<ServerInfo> infos;
   for (std::string line; std::getline(istr, line, ',');) {
     auto delim_pos = line.find(':');
+    std::println("line={}, delim_pos={}", line, delim_pos);
     std::string ip = line.substr(0, delim_pos);
-    uint16_t port = std::stoi(line.substr(delim_pos));
+    uint16_t port = std::stoi(line.substr(delim_pos+1));
     infos.emplace_back(std::move(ip), port);
   }
   return infos;
+}
+std::string StateToString(State state) {
+  if (state == State::Follower) {
+    return "Follower";
+  }
+  if (state == State::Candidate) {
+    return "Candidate";
+  }
+  return "Leader";
 }
 } // end anonymous namespace
 
@@ -59,8 +70,9 @@ Server::Server(int cluster_size, int server_idx, std::string server_info)
     : praftservice_{std::make_unique<RaftService>()},
     numservers_{cluster_size} {
   
+  id_ = server_idx;
   servers_ = ExtractServerInfo(server_info);
-  port_ = servers_[server_idx].port_;
+  port_ = servers_[id_].port_;
 
   std::string port{std::to_string(servers_[server_idx].port_)};
 
@@ -89,6 +101,15 @@ Server::Server(int cluster_size, int server_idx, std::string server_info)
     exit(EXIT_FAILURE);
   }
 
+  // set so_reuseaddr
+  int optval{1};
+  int ret = setsockopt(sockfd_, SOL_SOCKET, SO_REUSEADDR, &optval,
+                       sizeof(optval));
+  if (ret == -1) {
+    perror("setsocketopt");
+    exit(EXIT_FAILURE);
+  }
+
   if (bind(sockfd_, res->ai_addr, res->ai_addrlen) == -1) {
     perror("bind");
     exit(EXIT_FAILURE);
@@ -99,7 +120,7 @@ Server::Server(int cluster_size, int server_idx, std::string server_info)
   // TODO install a signal handler from cluster
   // listen to sigquit, sigterm
 
-  std::println("[server@{}] start. listen at sock={}", port, sockfd_);
+  std::println("[server@{}]: start. listen at sock={}", port, sockfd_);
   start();
 }
 
@@ -182,7 +203,7 @@ int Server::ReceiveHelper(int sockfd, char* buf, size_t size, SenderInfo& si) {
 
 /* ================ START CANDIDATE ============== */
 void Server::doCandidateRequestVotes() {
-  const size_t required_votes = numservers_ / 2 + 1;
+  const size_t required_votes = (numservers_-1)/ 2 + 1;
 
   std::println("[server@{}]: start RequestVote. term={}",
     port_,
@@ -190,6 +211,9 @@ void Server::doCandidateRequestVotes() {
 
   while (true) {
     for (int i{}; i < numservers_; ++i) {
+      if (i == id_) {
+        continue;
+      }
       auto si = servers_[i];
       [[maybe_unused]] auto fut = std::async(std::launch::async, [&]() { sendRequestVote(si); });
     }
@@ -204,7 +228,7 @@ void Server::doCandidateRequestVotes() {
         return num_votes >= required_votes;
       });
     }
-
+    // TODO -- on timeout
     char buf[BUFSIZE];
     struct sockaddr_storage peer_addr;
     socklen_t peer_addrlen{sizeof(peer_addr)};
@@ -245,13 +269,19 @@ void Server::doCandidateListen() {
   char buf[BUFSIZE];
   while (true) {
     ssize_t n = ::recv(sockfd_, buf, BUFSIZE, 0);
-    if (n > 0 && praftservice_->hasNewLeaderInResponse(std::string_view{buf, n})) {
-      {
-        std::lock_guard lck{candidate_loop_mutex_};
-        praftservice_->state().state_ = State::Follower;
+    if (n > 0) {
+      std::string_view msg{buf, n};
+      if (praftservice_->hasNewLeaderInResponse(msg)) {
+        {
+          std::lock_guard lck{candidate_loop_mutex_};
+          praftservice_->state().state_ = State::Follower;
+        }
+        candidate_loop_cv_.notify_one();
+        break;
       }
-      candidate_loop_cv_.notify_one();
-      break;
+      if (praftservice_->hasRequestVoteRequest(msg)) {
+
+      }
     }
   }
 }
@@ -279,7 +309,8 @@ State Server::doCandidateLoop() {
   std::println("[server@{}]: finish doCandidateLoop. term={}, state={}",
     port_,
     praftservice_->state().current_term_,
-    praftservice_->state().state_);
+    StateToString(praftservice_->state().state_));
+
   return praftservice_->state().state_;
 }
 /* ================ END CANDIDATE ============== */
@@ -303,7 +334,7 @@ State Server::doLeaderLoop() {
     }
 
     size_t num_responses{};
-    const size_t required_votes = numservers_ / 2 + 1;
+    const size_t required_votes = (numservers_ - 1) / 2 + 1;
 
     bool has_heartbeats{false};
     {
@@ -371,20 +402,18 @@ void Server::sendRequestVote(const ServerInfo& server_info) {
     praftservice_->state().current_term_);
 
   struct sockaddr_in their_addr; // connector's address info
-  memset(&their_addr, 0, sizeof(their_addr);
+  memset(&their_addr, 0, sizeof(their_addr));
   their_addr.sin_family = AF_INET;     // host byte order
   their_addr.sin_port = htons(server_info.port_); // network byte order
   their_addr.sin_addr.s_addr = htonl(INADDR_ANY); 
 
   const auto vote_term = praftservice_->state().current_term_;
 
+  const int candidate_id = praftservice_->state().id_;
   flatbuffers::FlatBufferBuilder fbb(1024);
-  RequestVoteRPCBuilder reply_builder{fbb};
-  reply_builder.add_term(vote_term);
+  auto o = CreateRequestVoteRPC(fbb, vote_term, candidate_id);
 
-  const int id = praftservice_->state().id_;
-  reply_builder.add_candidate_id(id);
-  reply_builder.Finish();
+  fbb.Finish(o);
 
   uint8_t* buf = fbb.GetBufferPointer();
   int size = fbb.GetSize();
@@ -396,9 +425,8 @@ void Server::sendRequestVote(const ServerInfo& server_info) {
 }
 
 void Server::sendRequestVoteResponse(std::string_view request, const SenderInfo& sender_info) {
-  std::println("[server@{}]: sendRequestVoteResponse to={}. term={}",
+  std::println("[server@{}]: sendRequestVoteResponse term={}",
     port_,
-    sender_info.port_,
     praftservice_->state().current_term_);
 
   const RequestVoteRPC* preq = GetRequestVoteRPC(static_cast<const void*>(request.data()));
@@ -449,7 +477,7 @@ void Server::sendHeartBeat(size_t server_idx) {
   int size = fbb.GetSize();
   
   struct sockaddr_in their_addr; // connector's address info
-  memset(&their_addr, 0, sizeof(their_addr);
+  memset(&their_addr, 0, sizeof(their_addr));
   their_addr.sin_family = AF_INET;     // host byte order
   their_addr.sin_port = htons(server_info.port_); // network byte order
   their_addr.sin_addr.s_addr = htonl(INADDR_ANY); // network byte order 
@@ -462,9 +490,8 @@ void Server::sendHeartBeat(size_t server_idx) {
 
 void Server::sendHeartBeatResponse(std::string_view request, const SenderInfo& sender_info) {
 
-  std::println("[server@{}]: sendHeartBeatResponse to={}. term={}",
+  std::println("[server@{}]: sendHeartBeatResponse term={}",
     port_,
-    sender_info.port_,
     praftservice_->state().current_term_);
 
   const void* pbuf = static_cast<const void*>(request.data());  
@@ -494,4 +521,21 @@ void Server::sendHeartBeatResponse(std::string_view request, const SenderInfo& s
   if (ret != size) {
     std::cerr << "error sending heartbeat response\n";
   }
+}
+
+int main(int argc, char** argv) {
+  for (int i=0; i<argc; ++i) {
+    std::cerr << argv[i] << ' '; 
+  }
+  std::cout << std::endl;
+
+  int num_servers{std::stoi(std::string{argv[1]})};
+  std::cerr << "ns " << num_servers << std::endl;
+  int idx{std::stoi(argv[2])};
+  std::cerr << "idx " << idx << std::endl;
+  std::string serverinfo{argv[3]};
+  std::cerr << "si " << serverinfo << std::endl;
+
+  std::println("initializing server={}", idx);
+  Server s{num_servers, idx, serverinfo};
 }
