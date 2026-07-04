@@ -18,7 +18,7 @@ bool RaftService::hasRequestVoteRequest(std::string_view buf) {
 bool RaftService::hasRequestVoteReply(std::string_view buf) {
   const void* pbuf = static_cast<const void*>(buf.data());
   const RequestVoteRPCReply* reply = GetRequestVoteRPCReply(pbuf);
-  return reply && reply->vote_granted();
+  return reply != nullptr; 
 }
 
 bool RaftService::hasHeartBeatInRequest(std::string_view buf) {
@@ -51,14 +51,12 @@ bool RaftService::hasNewLeaderInResponse(std::string_view buf) {
 
 bool RaftService::hasVoteInRequestVoteResponse(std::string_view buf) {
   const void* pbuf = static_cast<const void*>(buf.data());
-  const AppendEntriesRPCReply* reply = GetAppendEntriesRPCReply(pbuf);
+  const RequestVoteRPCReply* reply = GetRequestVoteRPCReply(pbuf);
 
   if (!reply) {
     return false;
   }
-
-  const int leaders_term = reply->term();
-  return leaders_term >= raftstate_.current_term_;
+  return reply->vote_granted();
 }
 
 // append entries

@@ -1,4 +1,5 @@
 #include <cerrno>
+#include <csignal>
 #include <cstdlib>
 #include <cstdio>
 
@@ -10,8 +11,15 @@
 #include <vector>
 
 #include <unistd.h>
+#include <signal.h>
 #include <sys/types.h>
 #include <sys/wait.h>
+
+constexpr int MAXCHILDREN = 12;
+
+int total_children{};
+
+pid_t children[MAXCHILDREN];
 
 std::string ParseConfigFile(const char* file_name) {
     std::ifstream ifs{file_name};
@@ -29,6 +37,14 @@ std::string ParseConfigFile(const char* file_name) {
     return hosts;
 }
 
+void termination_handler(int signal) {
+    std::println("[main:termination_handler] send SIGINT to children");
+    for (int i{};i<total_children;++i) {
+        kill(children[i], SIGINT);
+    }
+    std::exit(EXIT_FAILURE);
+}
+
 int main(int argc, char** argv) {
 
     if (argc != 3) {
@@ -41,7 +57,6 @@ int main(int argc, char** argv) {
     std::println("[main]: num_server={}", num_servers);
 
     std::string hosts{ParseConfigFile(argv[2])};
-    std::println("[main]: cluster hosts={}", hosts);
 
     static char* newargv[] = {
         "server", 
@@ -72,22 +87,27 @@ int main(int argc, char** argv) {
         } else {
             std::println("[main] created process={}", pid);
             childpids.push_back(pid);
+            children[total_children++] = pid;
         }
     }
-    
-    int wstatus;
-    for (auto pid : childpids) {
-        do {
-            pid_t w = waitpid(pid, &wstatus, WNOHANG);
-            if (w == -1) {
-                perror("waitpid)");
-                std::exit(EXIT_FAILURE);
-            }
 
-            if (WIFEXITED((wstatus))) {
-                std::println("[main] pid={} exited. status={}", pid, WEXITSTATUS(wstatus));
-            }
-        } while (!WIFEXITED(wstatus) && !WIFSIGNALED(wstatus));
+    if (signal(SIGINT, termination_handler) == SIG_ERR) { 
+      perror("signal");
+      std::exit(EXIT_FAILURE);
+    }
+    if (signal(SIGTERM, termination_handler) == SIG_ERR) {
+      perror("signal");
+      std::exit(EXIT_FAILURE);
+    }
+
+    pid_t pid;
+    int status;
+    for (;;) {
+      pid = waitpid (WAIT_ANY, &status, WNOHANG);
+      if (pid == -1) {
+        perror("waitpid)");
+        std::exit(EXIT_FAILURE);
+      }
     }    
 
     std::println("[main]: exit");

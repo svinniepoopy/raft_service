@@ -25,9 +25,7 @@ class Server {
     State doCandidateLoop();
     State doLeaderLoop();
 
-    // loop internal methods
-    void doCandidateRequestVotes();
-    void doCandidateListen();
+    void doCandidateRequestVotesSendAndListen();
 
     // senders
     void sendRequestVote(const ServerInfo&);

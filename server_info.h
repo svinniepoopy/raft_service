@@ -13,7 +13,7 @@ struct ServerInfo {
 };
 
 struct SenderInfo {
-  struct sockaddr_storage* peer_addr;
+  struct sockaddr_storage peer_addr;
   socklen_t peer_addrlen;
 };
 

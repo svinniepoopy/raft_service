@@ -8,6 +8,7 @@
 #include "generated/RequestVoteReply_generated.h"
 #include "generated/RequestVote_generated.h"
 
+#include <csignal>
 #include <cstring>
 #include <cstdint>
 #include <cstdio>
@@ -29,6 +30,7 @@
 #include <print>
 
 #include <netdb.h>
+#include <signal.h>
 #include <sys/socket.h>
 #include <sys/types.h>
 
@@ -48,7 +50,6 @@ std::vector<ServerInfo> ExtractServerInfo(const std::string& si) {
   std::vector<ServerInfo> infos;
   for (std::string line; std::getline(istr, line, ',');) {
     auto delim_pos = line.find(':');
-    std::println("line={}, delim_pos={}", line, delim_pos);
     std::string ip = line.substr(0, delim_pos);
     uint16_t port = std::stoi(line.substr(delim_pos+1));
     infos.emplace_back(std::move(ip), port);
@@ -79,7 +80,7 @@ Server::Server(int cluster_size, int server_idx, std::string server_info)
   // setup a UDP connection listener
   struct addrinfo hints, *res;
   memset(&hints, 0, sizeof(hints));
-  hints.ai_family = AF_UNSPEC;
+  hints.ai_family = AF_INET;
   hints.ai_socktype = SOCK_DGRAM;
   hints.ai_flags = AI_PASSIVE;
   hints.ai_protocol = 0; // any protocol
@@ -117,7 +118,7 @@ Server::Server(int cluster_size, int server_idx, std::string server_info)
 
   freeaddrinfo(res);
 
-  // TODO install a signal handler from cluster
+  // TODO install a signal handler from main 
   // listen to sigquit, sigterm
 
   std::println("[server@{}]: start. listen at sock={}", port, sockfd_);
@@ -173,7 +174,7 @@ State Server::doFollowerLoop() {
       size_t len = static_cast<size_t>(n);
       std::string_view req{buf, len};     
       auto async_func = [&]() {
-        SenderInfo si{.peer_addr = &peer_addr, .peer_addrlen = peer_addrlen};
+        SenderInfo si{.peer_addr = peer_addr, .peer_addrlen = peer_addrlen};
         if (praftservice_->hasHeartBeatInRequest(req)) {          
           sendHeartBeatResponse(req, si);
           timer_cv_.notify_one();
@@ -202,58 +203,86 @@ int Server::ReceiveHelper(int sockfd, char* buf, size_t size, SenderInfo& si) {
 }
 
 /* ================ START CANDIDATE ============== */
-void Server::doCandidateRequestVotes() {
+void Server::doCandidateRequestVotesSendAndListen() {
   const size_t required_votes = (numservers_-1)/ 2 + 1;
 
   std::println("[server@{}]: start RequestVote. term={}",
     port_,
     praftservice_->state().current_term_);
 
-  while (true) {
+  State curr_state{State::Candidate};
+  while (curr_state == State::Candidate) {
     for (int i{}; i < numservers_; ++i) {
       if (i == id_) {
         continue;
       }
       auto si = servers_[i];
-      [[maybe_unused]] auto fut = std::async(std::launch::async, [&]() { sendRequestVote(si); });
+      [[maybe_unused]] auto fut =
+          std::async(std::launch::async, [&]() { sendRequestVote(si); });
+    }
+    size_t num_votes{};
+    auto async_func = [&]() {
+      char buf[BUFSIZE];
+      int n;
+      std::println(
+          "[server@{}]: doCandidateRequestVote: start message listener", port_);
+
+      for (;;) {
+        SenderInfo recv_si{};
+        recv_si.peer_addrlen = sizeof(struct sockaddr_storage);
+        n = ::recvfrom(sockfd_, buf, BUFSIZE, 0,
+                           (struct sockaddr *)&recv_si.peer_addr, &recv_si.peer_addrlen);        
+
+        std::println("[server@{}]: doCandidateRequestVote: received msg len={}", port_, n);
+        if (praftservice_->hasRequestVoteReply({buf, n}) &&
+            praftservice_->hasVoteInRequestVoteResponse({buf, n})) {
+          ++num_votes;
+          if (num_votes >= required_votes) {
+            std::println("[server@{}]: RequestVotes complete. change state to "
+                         "Leader. term={}",
+                         port_, praftservice_->state().current_term_);
+            {
+              std::lock_guard lck{candidate_loop_mutex_};
+              praftservice_->state().state_ = State::Leader;
+              curr_state = State::Leader;
+            }
+            candidate_loop_cv_.notify_one();
+            break;
+          }
+        } else if (praftservice_->hasNewLeaderInResponse({buf, n})) {
+          {
+            std::lock_guard lck{candidate_loop_mutex_};
+            praftservice_->state().state_ = State::Follower;
+            curr_state = State::Follower;
+          }
+          candidate_loop_cv_.notify_one();
+          break;
+
+        } else if (praftservice_->hasRequestVoteRequest({buf, n})) { 
+          std::println("[server@{}]: respond to requestVote", port_);
+          sendRequestVoteResponse({buf, n}, recv_si);
+        }
+      }
+    };
+    
+    [[maybe_unused]] auto req_fut = std::async(std::launch::async, async_func);
+    
+    // gather votes before timer expiry
+    std::cv_status status{std::cv_status::no_timeout};
+    {
+      std::chrono::milliseconds timeout_duration{GetRandomDuration()};
+      std::println("[server@{}]: doCandidateRequestVote: timeout in={}",
+                   port_, timeout_duration);
+      std::unique_lock lck{candidate_loop_mutex_};
+      status = timer_cv_.wait_for(lck, timeout_duration);
     }
 
-    size_t num_votes{};
-    // gather votes before timer expiry
-    bool has_votes{false};
-    {
-      std::unique_lock lck{candidate_loop_mutex_};
-      std::chrono::milliseconds timeout_duration{GetRandomDuration()};
-      has_votes = timer_cv_.wait_for(lck, timeout_duration, [&]() {
-        return num_votes >= required_votes;
-      });
-    }
-    // TODO -- on timeout
-    char buf[BUFSIZE];
-    struct sockaddr_storage peer_addr;
-    socklen_t peer_addrlen{sizeof(peer_addr)};
-    int n;
-    SenderInfo si{&peer_addr, peer_addrlen};
-    while ((n = ReceiveHelper(sockfd_, buf, BUFSIZE, si)) > 0) {
-      auto async_func = [&]() {        
-        if (praftservice_->hasVoteInRequestVoteResponse(std::string_view{buf, n})) {
-          ++num_votes;
-        }
-      };
-      [[maybe_unused]] auto req_fut = std::async(std::launch::async, async_func);
-      if (num_votes >= required_votes) {
-        std::lock_guard lck{candidate_loop_mutex_};
-        praftservice_->state().state_ = State::Leader;
-      }
-      if (num_votes >= required_votes) {
-        std::println("[server@{}]: RequestVotes complete. change state to Leader. term={}",
-          port_,
-          praftservice_->state().current_term_);
-        break;
-      }
-    }
-    if (has_votes) {
+    if (curr_state == State::Follower || curr_state == State::Leader) {
       break;
+    }
+    if (status == std::cv_status::timeout) {
+      std::println("[server@{}]: start doCandidateRequestVote: timeout", port_);
+      continue;
     }
   }
 }
@@ -265,27 +294,6 @@ as large as the candidate’s current term, then the candidate recognizes the le
 legitimate and returns to follower state. If the term in the RPC is smaller than the 
 candidate’s current term, then the candidate rejects the RPC and continues in candidate state.
 */
-void Server::doCandidateListen() {
-  char buf[BUFSIZE];
-  while (true) {
-    ssize_t n = ::recv(sockfd_, buf, BUFSIZE, 0);
-    if (n > 0) {
-      std::string_view msg{buf, n};
-      if (praftservice_->hasNewLeaderInResponse(msg)) {
-        {
-          std::lock_guard lck{candidate_loop_mutex_};
-          praftservice_->state().state_ = State::Follower;
-        }
-        candidate_loop_cv_.notify_one();
-        break;
-      }
-      if (praftservice_->hasRequestVoteRequest(msg)) {
-
-      }
-    }
-  }
-}
-
 State Server::doCandidateLoop() {
   ++praftservice_->state().current_term_;
   praftservice_->state().state_ = State::Candidate;
@@ -294,8 +302,7 @@ State Server::doCandidateLoop() {
     port_,
     praftservice_->state().current_term_);
 
-  std::jthread request_votes_thr{&Server::doCandidateRequestVotes, this};
-  std::jthread listener_thr{&Server::doCandidateListen, this};
+  std::jthread request_votes_thr{&Server::doCandidateRequestVotesSendAndListen, this};
 
   std::unique_lock lck{candidate_loop_mutex_};
   candidate_loop_cv_.wait(lck, [&]() {
@@ -303,8 +310,7 @@ State Server::doCandidateLoop() {
      praftservice_->state().state_ == State::Leader;
   });
 
-  request_votes_thr.join();
-  listener_thr.join();
+  request_votes_thr.request_stop();
 
   std::println("[server@{}]: finish doCandidateLoop. term={}, state={}",
     port_,
@@ -325,51 +331,60 @@ State Server::doLeaderLoop() {
     port_,
     praftservice_->state().current_term_);
 
-  while (true) {    
+  State curr_state{State::Leader};
+
+  const size_t required_votes = (numservers_ - 1) / 2 + 1;
+  while (curr_state == State::Leader) {    
     // timeout duration is fixed between a set of heartbeats 
     std::chrono::milliseconds timeout_duration{GetRandomDuration()};
     for (int i{}; i < numservers_; ++i) {
+      if (i == id_) {
+        continue;
+      }
       [[maybe_unused]] auto fut =
           std::async(std::launch::async, [&]() { sendHeartBeat(i); });
     }
 
     size_t num_responses{};
-    const size_t required_votes = (numservers_ - 1) / 2 + 1;
+
+    auto async_func = [&]() {
+      char buf[BUFSIZE];
+      int n;
+      for (;;) { 
+        SenderInfo recv_si{};
+        recv_si.peer_addrlen = sizeof(struct sockaddr_storage);
+        n = ::recvfrom(sockfd_, buf, BUFSIZE, 0,
+                       (struct sockaddr *)&recv_si.peer_addr,
+                       &recv_si.peer_addrlen);
+
+        if (praftservice_->hasHeartBeatInResponse(std::string_view{buf, n})) {
+          ++num_responses;
+        }
+
+        if (num_responses >= required_votes) {
+          std::println("[server@{}]: Leader: QUORUM established. term={}", port_,
+                       praftservice_->state().current_term_);
+                       timer_cv_.notify_one();
+          break;
+        }
+      }
+    };
+
+    auto fut = std::async(std::launch::async, async_func); 
 
     bool has_heartbeats{false};
     {
-      std::unique_lock lck{leader_loop_mutex_};
       std::chrono::milliseconds timeout_duration{GetRandomDuration()};
+      std::unique_lock lck{leader_loop_mutex_};
       has_heartbeats = timer_cv_.wait_for(lck, timeout_duration, [&]() {
         return num_responses >= required_votes;
       });
     }
 
-    char buf[BUFSIZE];
-    struct sockaddr_storage peer_addr;
-    socklen_t peer_addrlen{sizeof(peer_addr)};
-    int n;
-    SenderInfo si{&peer_addr, peer_addrlen};
-    while ((n = ReceiveHelper(sockfd_, buf, BUFSIZE, si)) > 0) {
-      auto recv_func = [&]() {
-        if (praftservice_->hasHeartBeatInResponse(std::string_view{buf, n})) {
-          ++num_responses;
-        }
-      };
-      
-      auto recv_fut = std::async(std::launch::async, recv_func);
-      if (num_responses >= required_votes) {
-        std::println("[server@{}]: Leader: GOT QUORUM. term={}",
-          port_,
-          praftservice_->state().current_term_);
-
-        break;
-      }
-    } 
     if (!has_heartbeats) {
-      std::println("[server@{}]: Leader: !!NO QUORUM!!. Change to Follower term={}",
-          port_,
-          praftservice_->state().current_term_);
+      std::println(
+          "[server@{}]: Leader: !!LOST QUORUM!!. Change to Follower term={}",
+          port_, praftservice_->state().current_term_);
 
       return State::Follower;
     }
@@ -408,11 +423,10 @@ void Server::sendRequestVote(const ServerInfo& server_info) {
   their_addr.sin_addr.s_addr = htonl(INADDR_ANY); 
 
   const auto vote_term = praftservice_->state().current_term_;
-
   const int candidate_id = praftservice_->state().id_;
+
   flatbuffers::FlatBufferBuilder fbb(1024);
   auto o = CreateRequestVoteRPC(fbb, vote_term, candidate_id);
-
   fbb.Finish(o);
 
   uint8_t* buf = fbb.GetBufferPointer();
@@ -435,19 +449,17 @@ void Server::sendRequestVoteResponse(std::string_view request, const SenderInfo&
     return;
   }
 
-  flatbuffers::FlatBufferBuilder fbb{1024};
-  RequestVoteRPCReplyBuilder reply_builder{fbb};
-
+  bool vote_granted{false};
   int curr_term = praftservice_->state().current_term_;
-  if (preq->term() < curr_term) {
-    reply_builder.add_vote_granted(false);
-  } else  if ((!praftservice_->state().voted_for_ 
+  if ((!praftservice_->state().voted_for_ 
       || *praftservice_->state().voted_for_ == preq->candidate_id()) &&
       preq->last_log_index() >= praftservice_->state().commit_index_) {
-        reply_builder.add_vote_granted(true);
+      vote_granted = true;
   }
   
-  reply_builder.Finish();
+  flatbuffers::FlatBufferBuilder fbb{1024};
+  auto o = CreateRequestVoteRPCReply(fbb, curr_term, vote_granted);
+  fbb.Finish(o);
   
   uint8_t* reply_buf = fbb.GetBufferPointer();
   int size = fbb.GetSize();
@@ -455,7 +467,8 @@ void Server::sendRequestVoteResponse(std::string_view request, const SenderInfo&
   int ret = ::sendto(sockfd_, reply_buf, size, 0,
     (struct sockaddr*)&sender_info.peer_addr, sender_info.peer_addrlen);
   if (ret != size) {
-    std::cerr << "error sending heartbeat response\n";
+    perror("sendto");
+    std::cerr << "error sending requestvote response\n";
   }
 }
 
@@ -467,11 +480,11 @@ void Server::sendHeartBeat(size_t server_idx) {
     praftservice_->state().current_term_);
 
   flatbuffers::FlatBufferBuilder fbb(1024);
-
   auto off = CreateAppendEntriesRPC(
       fbb,
       praftservice_->state().current_term_,
       praftservice_->state().id_);
+  fbb.Finish(off);
 
   uint8_t* buf = fbb.GetBufferPointer();
   int size = fbb.GetSize();
@@ -502,40 +515,47 @@ void Server::sendHeartBeatResponse(std::string_view request, const SenderInfo& s
     return;
   }
 
-  flatbuffers::FlatBufferBuilder fbb{1024};
-  AppendEntriesRPCReplyBuilder reply_builder{fbb};
-
+  bool success{true};
   int curr_term = praftservice_->state().current_term_;
   if (preq->term() < curr_term) { 
-    reply_builder.add_term(curr_term);
-    reply_builder.add_success(false);
+    success = false;
   }
 
-  reply_builder.Finish();
+  flatbuffers::FlatBufferBuilder fbb{1024};
+  auto o = CreateAppendEntriesRPCReply(fbb, curr_term, success);
+  fbb.Finish(o);
   
   uint8_t* reply_buf = fbb.GetBufferPointer();
   int size = fbb.GetSize();
   
   int ret = ::sendto(sockfd_, reply_buf, size, 0,
-    (struct sockaddr*)sender_info.peer_addr, sender_info.peer_addrlen);
+    (struct sockaddr*)&sender_info.peer_addr, sender_info.peer_addrlen);
   if (ret != size) {
     std::cerr << "error sending heartbeat response\n";
   }
 }
 
+void termination_handler(int signal) {
+  std::exit(EXIT_FAILURE);
+}
+
 int main(int argc, char** argv) {
-  for (int i=0; i<argc; ++i) {
-    std::cerr << argv[i] << ' '; 
+
+  if (signal(SIGINT, termination_handler) == SIG_ERR) {
+    perror("signal");
+    std::exit(EXIT_FAILURE);
   }
-  std::cout << std::endl;
+  if (signal(SIGTERM, termination_handler) == SIG_ERR) {
+    perror("signal");
+    std::exit(EXIT_FAILURE);
+  }
 
   int num_servers{std::stoi(std::string{argv[1]})};
-  std::cerr << "ns " << num_servers << std::endl;
-  int idx{std::stoi(argv[2])};
-  std::cerr << "idx " << idx << std::endl;
-  std::string serverinfo{argv[3]};
-  std::cerr << "si " << serverinfo << std::endl;
 
-  std::println("initializing server={}", idx);
+  int idx{std::stoi(argv[2])};
+
+  std::string serverinfo{argv[3]};
+
+
   Server s{num_servers, idx, serverinfo};
 }
