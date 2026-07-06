@@ -11,6 +11,7 @@ class RaftService;
 #include <mutex>
 #include <string>
 #include <vector>
+#include <stop_token>
 
 class Server {
   public:
@@ -22,10 +23,11 @@ class Server {
     
     // loops for each of the states
     State doFollowerLoop();
-    State doCandidateLoop();
-    State doLeaderLoop();
 
+    State doCandidateLoop();
     void doCandidateRequestVotesSendAndListen();
+
+    State doLeaderLoop();
 
     // senders
     void sendRequestVote(const ServerInfo&);
@@ -34,10 +36,11 @@ class Server {
     void sendHeartBeat(size_t /*server_idx*/);
     void sendHeartBeatResponse(std::string_view request, const SenderInfo&);
 
-    int ReceiveHelper(int sockfd, char* buf, size_t size, SenderInfo& si);
-
     std::condition_variable_any timer_cv_;
     std::mutex timer_mutex_;
+
+    std::condition_variable follower_loop_cv_;
+    std::mutex follower_mutex_;
 
     // used in the candidate loop
     std::condition_variable candidate_loop_cv_;

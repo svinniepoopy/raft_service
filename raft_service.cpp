@@ -9,6 +9,28 @@
 
 #include <string_view>
 
+bool RaftService::hasHigherTerm(std::string_view buf) {
+  const void* pbuf = static_cast<const void*>(buf.data());
+
+  if (const RequestVoteRPC *rpc = GetRequestVoteRPC(pbuf);
+      rpc && rpc->term() > raftstate_.current_term_) {
+    return true;
+  }
+  if (const RequestVoteRPCReply *rpc = GetRequestVoteRPCReply(pbuf);
+      rpc && rpc->term() > raftstate_.current_term_) {
+    return true;
+  }
+  if (const AppendEntriesRPC* rpc = GetAppendEntriesRPC(pbuf);
+      rpc && rpc->term() > raftstate_.current_term_) {
+    return true;
+  }
+  if (const AppendEntriesRPCReply* rpc = GetAppendEntriesRPCReply(pbuf);
+      rpc && rpc->term() > raftstate_.current_term_) {
+    return true;
+  }
+  return false;
+}
+
 bool RaftService::hasRequestVoteRequest(std::string_view buf) {
   const void* pbuf = static_cast<const void*>(buf.data());
   const RequestVoteRPC* reply = GetRequestVoteRPC(pbuf);
@@ -28,25 +50,13 @@ bool RaftService::hasHeartBeatInRequest(std::string_view buf) {
     return false;
   } 
   const auto& entries = *rpc->entries();
-  return !entries.empty();
+  return entries.empty();
 }
 
 bool RaftService::hasHeartBeatInResponse(std::string_view buf) {
   const void* pbuf = static_cast<const void*>(buf.data());
   const AppendEntriesRPCReply* reply = GetAppendEntriesRPCReply(pbuf); 
   return reply ? reply->success() : false;
-}
-
-bool RaftService::hasNewLeaderInResponse(std::string_view buf) {
-  const void* pbuf = static_cast<const void*>(buf.data());
-  const AppendEntriesRPCReply* reply = GetAppendEntriesRPCReply(pbuf);
-
-  if (!reply) {
-    return false;
-  }
-
-  const int leaders_term = reply->term();
-  return leaders_term >= raftstate_.current_term_;
 }
 
 bool RaftService::hasVoteInRequestVoteResponse(std::string_view buf) {

@@ -11,6 +11,8 @@ enum class State : uint8_t { Follower, Candidate, Leader };
 
 struct RaftState {
 
+  bool voted_in_current_term{false};
+
   int id_;
 
   State state_{State::Follower};

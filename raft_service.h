@@ -7,6 +7,9 @@
 
 class RaftService {
 public:
+
+  bool hasHigherTerm(std::string_view);
+
   // request vote
   bool hasRequestVoteRequest(std::string_view);
   bool hasRequestVoteReply(std::string_view);
