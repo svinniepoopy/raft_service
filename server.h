@@ -23,10 +23,7 @@ class Server {
     
     // loops for each of the states
     State doFollowerLoop();
-
     State doCandidateLoop();
-    void doCandidateRequestVotesSendAndListen();
-
     State doLeaderLoop();
 
     // senders
