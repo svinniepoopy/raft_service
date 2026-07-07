@@ -286,7 +286,10 @@ State Server::doCandidateLoop() {
       while (!stop_token.stop_requested()) {
 
         read = poll(pfds, 1, 100);
-
+        if (read == -1) {
+          perror("poll");
+          std::exit(EXIT_FAILURE);
+        }
         if (pdfs[0].revents != 0) {
 
           if (pfds[0].revents & POLLIN) {
@@ -295,8 +298,10 @@ State Server::doCandidateLoop() {
                            &recv_si.peer_addrlen);
 
             if (n > 0) {
+              std::lock_guard lck{messages_mutex};
               message_q.push(std::string{buf, n},
                              {recv_si.peer_addr, recv_si.peer_addrlen});
+              messages_cv.notify_one();
             }
           }
         }
@@ -376,14 +381,11 @@ State Server::doCandidateLoop() {
       sendRequestVote(servers_[i]);
     }
 
-    std::chrono::milliseconds timeout_duration{GetRandomDuration()};
-    std::println("[server@{}]: doCandidateRequestVote: timeout in={}", port_,
-                 timeout_duration);
+    std::chrono::milliseconds timeout_duration{GetRandomDuration()}; 
     std::unique_lock lck{candidate_loop_mutex_};
     status = timer_cv_.wait_for(lck, timeout_duration);
 
     if (curr_state == State::Follower || curr_state == State::Leader) {
-      lck.unlock();
       message_receiver_thr.request_stop();
       message_processing_thr.request_stop();
       break;
@@ -391,6 +393,10 @@ State Server::doCandidateLoop() {
       std::println("[server@{}]: start doCandidateRequestVote: timeout - start "
                    "new election term",
                    port_);
+      {
+        std::lock_guard lck{messages_mutex};
+        message_q.clear();
+      }
     }
   }
 
