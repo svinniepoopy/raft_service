@@ -165,37 +165,72 @@ void Server::start() {
 State Server::doFollowerLoop() {
   std::println("[server@{}]: --- enter doFollowerLoop. term={} ----", port_,
                praftservice_->state().current_term_);
-    
-  bool has_response{false};
 
-  std::jthread follower_loop_thr{[&](std::stop_token stop_token) {
-    std::println("[server@{}]: enter doFollowerLoopSendAndListen", port_);
+  std::deque<Message> message_q;
 
-    int n;
+  std::mutex messages_mutex;
+  std::condition_variable_any messages_cv;
+
+  int n;
+  std::jthread message_receiver_thr{[&](std::stop_token stop_token) {
+    std::println("[server@{}]: ---- start follower message_receiver thr",
+                 port_);
+    struct pollfd *pfds;
+    pfds = static_cast<struct pollfd *>(calloc(1, sizeof(struct pollfd)));
+    pfds[0].fd = sockfd_;
+    pfds[0].events = POLL_IN;
 
     char buf[BUFSIZE];
-    struct sockaddr_storage peer_addr;
-    socklen_t peer_addrlen{sizeof(peer_addr)};
-
+    SenderInfo recv_si{};
+    recv_si.peer_addrlen = sizeof(struct sockaddr_storage);
+    int ready;
     while (!stop_token.stop_requested()) {
-      n = ::recvfrom(sockfd_, buf, BUFSIZE, MSG_DONTWAIT, (struct sockaddr *)&peer_addr,
-                     &peer_addrlen);
 
-      if (errno == EWOULDBLOCK || errno == EAGAIN) {
-        continue;
+      ready = poll(pfds, 1, 100);
+      if (ready == -1) {
+        perror("poll");
+        std::exit(EXIT_FAILURE);
       }
-      size_t len = static_cast<size_t>(n);
-      std::string_view req{buf, len};
+      if (pfds[0].revents != 0) {
 
-      SenderInfo si{.peer_addr = peer_addr, .peer_addrlen = peer_addrlen};
-      if (praftservice_->hasHeartBeatInRequest(req)) {
+        if (pfds[0].revents & POLLIN) {
+          n = ::recvfrom(sockfd_, buf, BUFSIZE, 0,
+                         (struct sockaddr *)&recv_si.peer_addr,
+                         &recv_si.peer_addrlen);
+          if (n > 0) {
+            std::lock_guard lck{messages_mutex};
+            message_q.push_back({std::string{std::string_view{buf, n}},
+                                 {recv_si.peer_addr, recv_si.peer_addrlen}});
+            messages_cv.notify_one();
+          }
+        }
+      }
+    }
+  }};
+
+  std::jthread message_processing_thr{[&](std::stop_token stop_token) {
+    std::println("[server@{}]: start follower message_processing_thr", port_);
+    while (!stop_token.stop_requested()) {
+
+      std::unique_lock lck{messages_mutex};
+      auto pred = [&]() { return !message_q.empty(); };
+      if (!messages_cv.wait(lck, stop_token, pred)) {
+        return;
+      }
+      auto recv_data = message_q.front();
+      message_q.pop_front();
+      lck.unlock();
+
+      std::string_view buf{recv_data.msg};
+
+      if (praftservice_->hasHeartBeatInRequest(buf)) {
         std::println("[server@{}]: follower respond to heartbeat", port_);
         sendHeartBeatResponse(req, si);
         {
           std::lock_guard lck{timer_mutex_};
           has_response = true;
         }
-      } else if (praftservice_->hasRequestVoteRequest(req)) {
+      } else if (praftservice_->hasRequestVoteRequest(buf)) {
         sendRequestVoteResponse(req, si);
         {
           std::lock_guard lck{timer_mutex_};
@@ -203,48 +238,33 @@ State Server::doFollowerLoop() {
         }
       }
     }
-    std::println("[server@{}]: doFollowerLoopSendAndListen - stop_requested", port_);
   }};
 
-  std::jthread waiter_thr{[&](std::stop_token stop_token) {
-    while (!stop_token.stop_requested()) {
-      std::chrono::milliseconds timeout_duration{GetRandomDuration()};
-      std::println("[server@{}]: doFollowerLoopWait: timeout in={}", port_,
-                   timeout_duration);
-      std::unique_lock lck{timer_mutex_};
-      auto status = timer_cv_.wait_for(lck, timeout_duration);
+  while (true) {
+    std::chrono::milliseconds timeout_duration{GetRandomDuration()};
+    std::println("[server@{}]: doFollowerLoopWait: timeout in={}", port_,
+                 timeout_duration);
+    std::unique_lock lck{timer_mutex_};
+    auto status = timer_cv_.wait_for(lck, timeout_duration);
 
-      if (status == std::cv_status::timeout && !has_response) {
-        praftservice_->state().state_ = State::Candidate;
-        follower_loop_cv_.notify_one();
-        std::println("[server@{}]: doFollowerLoopWait: timeout", port_);
-        break;
-      }
+    if (!has_response) {
+      praftservice_->state().state_ = State::Candidate;
+      message_receiver_thr.request_stop();
+      message_processing_thr.request_stop();
+      lck.unlock();
+
+      std::println("[server@{}]: doFollowerLoopWait: timeout", port_);
+      break;
     }
-  }};
-
-  std::unique_lock lck{follower_mutex_};
-  follower_loop_cv_.wait(lck, [&]() {
-    return praftservice_->state().state_ == State::Candidate;
-  });
-
-  bool follower_stopped = follower_loop_thr.request_stop();
-  if (!follower_stopped) {
-    std::println("[server@{}]: Error - follower_stopped false", port_); 
   }
-  bool waiter_stopped = waiter_thr.request_stop();
-  if (!waiter_stopped) {
-    std::println("[server@{}]: Error - waiter_stopped false", port_); 
-  }
-
   std::println("[server@{}]: ---- finish doFollower. term={}, state={} ----",
     port_,
     praftservice_->state().current_term_,
     StateToString(praftservice_->state().state_));
 
-  return praftservice_->state().state_;
-}
 
+  return State::Candidate;
+}
 /* ================ END FOLLOWER ============== */
 
 /* ================ START CANDIDATE ============== */
@@ -271,7 +291,7 @@ State Server::doCandidateLoop() {
 
   int n;
   std::jthread message_receiver_thr{[&](std::stop_token stop_token) {
-    std::println("[server@{}]: ---- start message_receiver thr", port_); 
+    std::println("[server@{}]: ---- start candidate message_receiver thr", port_); 
       struct pollfd* pfds;
       pfds = static_cast<struct pollfd*>(calloc(1, sizeof(struct pollfd)));
       pfds[0].fd = sockfd_;
@@ -295,7 +315,6 @@ State Server::doCandidateLoop() {
                            (struct sockaddr *)&recv_si.peer_addr,
                            &recv_si.peer_addrlen);
             if (n > 0) {
-              std::println("[server@{}]: ---- message_receiver thr push msg ", port_); 
               std::lock_guard lck{messages_mutex};
               message_q.push_back({std::string{std::string_view{buf, n}},
                              {recv_si.peer_addr, recv_si.peer_addrlen}});
@@ -680,7 +699,6 @@ void Server::sendHeartBeat(size_t server_idx) {
 }
 
 void Server::sendHeartBeatResponse(std::string_view request, const SenderInfo& sender_info) {
-
   std::println("[server@{}]: sendHeartBeatResponse term={}",
     port_,
     praftservice_->state().current_term_);
