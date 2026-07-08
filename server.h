@@ -13,6 +13,11 @@ class RaftService;
 #include <vector>
 #include <stop_token>
 
+struct Message {
+  std::string msg;
+  SenderInfo si;
+};
+
 class Server {
   public:
     Server(int cluster_size, int server_idx, std::string servers); 
