@@ -167,11 +167,13 @@ State Server::doFollowerLoop() {
                praftservice_->state().current_term_);
 
   std::deque<Message> message_q;
-
+  
   std::mutex messages_mutex;
   std::condition_variable_any messages_cv;
 
   int n;
+
+  bool has_response{false};
   std::jthread message_receiver_thr{[&](std::stop_token stop_token) {
     std::println("[server@{}]: ---- start follower message_receiver thr",
                  port_);
@@ -225,13 +227,13 @@ State Server::doFollowerLoop() {
 
       if (praftservice_->hasHeartBeatInRequest(buf)) {
         std::println("[server@{}]: follower respond to heartbeat", port_);
-        sendHeartBeatResponse(req, si);
+        sendHeartBeatResponse(buf, recv_data.si);
         {
           std::lock_guard lck{timer_mutex_};
           has_response = true;
         }
       } else if (praftservice_->hasRequestVoteRequest(buf)) {
-        sendRequestVoteResponse(req, si);
+        sendRequestVoteResponse(buf, recv_data.si);
         {
           std::lock_guard lck{timer_mutex_};
           has_response = true;
@@ -436,8 +438,6 @@ State Server::doLeaderLoop() {
     port_,
     praftservice_->state().current_term_);
 
-  State curr_state{State::Leader};
-
   std::deque<Message> message_q;
 
   std::mutex messages_mutex;
@@ -482,6 +482,8 @@ State Server::doLeaderLoop() {
   const size_t required_votes = (numservers_ - 1) / 2 + 1;
   int quorum_id{1};
   size_t num_responses{0};
+  //char host[NI_MAXHOST], service[NI_MAXSERV];
+
   std::jthread message_processing_thr{[&](std::stop_token stop_token) {
     while (!stop_token.stop_requested()) {
 
@@ -511,6 +513,17 @@ State Server::doLeaderLoop() {
         std::println("[server@{}]: Leader got heartBeatResponse. "
                      "curr_term={}",
                      port_, praftservice_->state().current_term_);
+
+        /*
+        int s = getnameinfo((struct sockaddr *)&recv_data.si.peer_addr,
+                            recv_data.si.peer_addrlen, host, NI_MAXHOST,
+                            service, NI_MAXSERV, NI_NUMERICSERV);
+        if (s == 0)
+          printf("Received heartbeatresponse from %s:%s\n", host, service);
+        else
+          fprintf(stderr, "getnameinfo: %s\n", gai_strerror(s));
+        */
+
         std::lock_guard lck{leader_loop_mutex_};
         ++num_responses;
       }
@@ -580,12 +593,12 @@ Once a candidate wins an election, it becomes leader. It then sends heartbeat me
 to all of the other servers to establish its authority and prevent new elections.
 */
 void Server::sendRequestVote(const ServerInfo& server_info) {
-  /*
+
   std::println("[server@{}]: sendRequestVote to={}. term={}",
     port_,
     server_info.port_,
     praftservice_->state().current_term_);
-  */
+
   struct sockaddr_in their_addr; // connector's address info
   memset(&their_addr, 0, sizeof(their_addr));
   their_addr.sin_family = AF_INET;     // host byte order
@@ -670,11 +683,13 @@ void Server::sendRequestVoteResponse(std::string_view request, const SenderInfo&
 
 void Server::sendHeartBeat(size_t server_idx) {
   auto server_info = servers_[server_idx];
-  
+
+  /*
   std::println("[server@{}]: sendHeartBeat to={}. term={}",
     port_,
     server_info.port_,
     praftservice_->state().current_term_);
+  */
   
   flatbuffers::FlatBufferBuilder fbb(1024);
   auto off = CreateAppendEntriesRPC(

@@ -55,8 +55,11 @@ bool RaftService::hasHeartBeatInRequest(std::string_view buf) {
 
 bool RaftService::hasHeartBeatInResponse(std::string_view buf) {
   const void* pbuf = static_cast<const void*>(buf.data());
-  const AppendEntriesRPCReply* reply = GetAppendEntriesRPCReply(pbuf); 
-  return reply ? reply->success() : false;
+  const AppendEntriesRPCReply* reply = GetAppendEntriesRPCReply(pbuf);
+  if (!reply) {
+    return false;
+  }
+  return reply->success(); 
 }
 
 bool RaftService::hasVoteInRequestVoteResponse(std::string_view buf) {
