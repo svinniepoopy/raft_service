@@ -4,11 +4,12 @@
 #include "raft_state.h"
 
 #include <string_view>
+#include <utility>
 
 class RaftService {
 public:
 
-  bool hasHigherTerm(std::string_view);
+  std::pair<bool, int> hasHigherTerm(std::string_view);
 
   // request vote
   bool hasRequestVoteRequest(std::string_view);
@@ -21,7 +22,7 @@ public:
   bool hasVoteInRequestVoteResponse(std::string_view);
 
   // append entries
-  bool hasAppendEntriesRequest(std::string_view);
+  std::pair<bool, int> hasAppendEntriesRequest(std::string_view);
   bool hasAppendEntriesReply(std::string_view);
 
   const RaftState &state() const { return raftstate_; }
