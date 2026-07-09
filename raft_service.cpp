@@ -13,19 +13,19 @@
 std::pair<bool, int> RaftService::hasHigherTerm(std::string_view buf) {
   const void* pbuf = static_cast<const void*>(buf.data());
   if (const RequestVoteRPC *rpc = GetRequestVoteRPC(pbuf);
-      rpc && rpc->term() > raftstate_.current_term_) {
+      rpc && rpc->term() >= raftstate_.current_term_) {
     return {true, rpc->term()};
   }
   if (const RequestVoteRPCReply *rpc = GetRequestVoteRPCReply(pbuf);
-      rpc && rpc->term() > raftstate_.current_term_) {
+      rpc && rpc->term() >= raftstate_.current_term_) {
     return {true, rpc->term()};
   }
   if (const AppendEntriesRPC* rpc = GetAppendEntriesRPC(pbuf);
-      rpc && rpc->term() > raftstate_.current_term_) {
+      rpc && rpc->term() >= raftstate_.current_term_) {
     return {true, rpc->term()};
   }
   if (const AppendEntriesRPCReply* rpc = GetAppendEntriesRPCReply(pbuf);
-      rpc && rpc->term() > raftstate_.current_term_) {
+      rpc && rpc->term() >= raftstate_.current_term_) {
     return {true, rpc->term()};
   }
   return {false, raftstate_.current_term_};
@@ -47,9 +47,9 @@ bool RaftService::hasHeartBeatInRequest(std::string_view buf) {
   const void* pbuf = static_cast<const void*>(buf.data());
   const AppendEntriesRPC* rpc = GetAppendEntriesRPC(pbuf);
   if (!rpc) {
-    return false;
+    return false; 
   } 
-  return true;
+  return true; 
 }
 
 bool RaftService::hasHeartBeatInResponse(std::string_view buf) {

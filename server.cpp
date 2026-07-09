@@ -79,9 +79,10 @@ Server::Server(int cluster_size, int server_idx, std::string server_info)
     : praftservice_{std::make_unique<RaftService>()},
     numservers_{cluster_size} {
   
-  id_ = server_idx;
+  praftservice_->state().id_ = server_idx;
+
   servers_ = ExtractServerInfo(server_info);
-  port_ = servers_[id_].port_;
+  port_ = servers_[praftservice_->state().id_].port_;
 
   std::string port{std::to_string(servers_[server_idx].port_)};
 
@@ -130,8 +131,7 @@ Server::Server(int cluster_size, int server_idx, std::string server_info)
 
   freeaddrinfo(res);
 
-  // TODO install a signal handler from main 
-  // listen to sigquit, sigterm
+  startCommandListener();
 
   std::println("[server@{}]: start. listen at sock={}", port, sockfd_);
   start();
@@ -139,6 +139,10 @@ Server::Server(int cluster_size, int server_idx, std::string server_info)
 
 Server::~Server() {
   ::close(sockfd_);
+}
+
+void Server::startCommandListener() {
+
 }
 
 // in a infinite loop
@@ -167,6 +171,8 @@ void Server::start() {
 State Server::doFollowerLoop() {
   std::println("[server@{}]: --- enter doFollowerLoop. term={} ----", port_,
                praftservice_->state().current_term_);
+
+  praftservice_->state().voted_in_current_term_ = false;
 
   std::deque<Message> message_q;
 
@@ -235,7 +241,10 @@ State Server::doFollowerLoop() {
           has_response = true;
         }
       } else if (praftservice_->hasRequestVoteRequest(buf)) {
-        sendRequestVoteResponse(buf, recv_data.si);
+        bool sent_resp = sendRequestVoteResponse(buf, recv_data.si);
+        if (!sent_resp) {
+          continue;
+        }
         std::println("[server@{}]: send requestVoteReply", port_);
         {
           std::lock_guard lck{timer_mutex_};
@@ -281,7 +290,6 @@ candidate’s current term, then the candidate rejects the RPC and continues in 
 */
 State Server::doCandidateLoop() {
   ++praftservice_->state().current_term_;
-  praftservice_->state().voted_in_current_term = false;
   praftservice_->state().state_ = State::Candidate;
 
   std::println("[server@{}]: ---- enter doCandidateLoop. term={} ----",
@@ -376,7 +384,7 @@ State Server::doCandidateLoop() {
           break;
         }
       } else if (praftservice_->hasRequestVoteRequest(buf)) {
-        //std::println("[server@{}]: respond to requestVote", port_);
+        std::println("[server@{}]: respond to requestVote", port_);
         sendRequestVoteResponse(buf, recv_data.si);
       } else if (praftservice_->hasAppendEntriesRequest(buf).first) {
            std::println("[server@{}]: got HeartBeat. CandidateLoop complete. change state to "
@@ -385,8 +393,7 @@ State Server::doCandidateLoop() {
         {
           std::lock_guard lck{candidate_loop_mutex_};
           praftservice_->state().state_ = State::Follower;
-          praftservice_->state().current_term_ =
-          praftservice_->hasAppendEntriesRequest(buf).second;
+          praftservice_->state().current_term_ = praftservice_->hasAppendEntriesRequest(buf).second;
         }
         candidate_loop_cv_.notify_one();
         break;
@@ -397,7 +404,7 @@ State Server::doCandidateLoop() {
   std::cv_status status{std::cv_status::no_timeout};
   while (true) {
     for (int i{}; i < numservers_; ++i) {
-      if (i == id_) {
+      if (i == praftservice_->state().id_) {
         continue;
       }
       sendRequestVote(servers_[i]);
@@ -417,7 +424,7 @@ State Server::doCandidateLoop() {
         std::lock_guard lck{messages_mutex};
         message_q.clear();
         num_votes = 1;
-        praftservice_->state().voted_in_current_term = false;
+        praftservice_->state().voted_in_current_term_ = false;
       }
     }
   }
@@ -432,14 +439,13 @@ State Server::doCandidateLoop() {
 /* ================ END CANDIDATE ============== */
 
 /* ================ START LEADER ============== */
-/*
-Upon election: send initial empty AppendEntries RPCs (heartbeat) to each server
-repeat during idle periods to prevent election timeouts
-*/
 State Server::doLeaderLoop() {
   std::println("[server@{}]: ---- enter doLeaderLoop. term={} ----",
     port_,
     praftservice_->state().current_term_);
+
+  auto start = std::chrono::steady_clock::now();
+  std::chrono::duration<double> total{}; 
 
   State curr_state{State::Leader};
 
@@ -485,7 +491,6 @@ State Server::doLeaderLoop() {
   }};
 
   const size_t required_votes = (numservers_ - 1) / 2 + 1;
-  int quorum_id{1};
   size_t num_responses{0};
   std::jthread message_processing_thr{[&](std::stop_token stop_token) {
     while (!stop_token.stop_requested()) {
@@ -523,11 +528,13 @@ State Server::doLeaderLoop() {
         ++num_responses;
       }
       if (num_responses >= required_votes) {
+        const auto end = std::chrono::steady_clock::now();
+        const std::chrono::duration<double> diff = end - start;
+        total += diff;
+        start = end;
         std::println("[server@{}]: ---- Leader: QUORUM established. "
-                     "term={} ---- ",
-                     port_, praftservice_->state().current_term_); 
-        num_responses = 0;
-        timer_cv_.notify_one();
+                     "term={} Leader since {} diff={}----",
+                     port_, praftservice_->state().current_term_, total, diff);
       }
     }
   }};
@@ -537,7 +544,7 @@ State Server::doLeaderLoop() {
   int num_attempts{0};
   while (true) { 
     for (int i{}; i < numservers_; ++i) {
-      if (i == id_) {
+      if (i == praftservice_->state().id_) {
         continue;
       }
       sendHeartBeat(i);
@@ -559,38 +566,24 @@ State Server::doLeaderLoop() {
         break;
       }
     } else {
+      num_responses = 0;
       num_attempts = 0;
     }
   }
+  std::println("[server@{}]: Leader state for={}", port_, total); 
 
   return State::Follower;
 }
 /* ================ END LEADER ================= */
 
 // ================= SENDERS ================= */
-/*
-To begin an election, a follower increments its current term and transitions to
-candidate state. It then votes for itself and issues RequestVote RPCs in parallel
-to each of the other servers in the cluster. A candidate continues in this state
-until one of three things happens:
-(a) it wins the election, 
-(b) another server establishes itself as leader, or
-(c) a period of time goes by with no winner.
-
-A candidate wins an election if it receives votes from a majority of the servers
-in the full cluster for the same term. Each server will vote for at most on candidate
-in a given term, on a first-come-first-served basis.
-
-Once a candidate wins an election, it becomes leader. It then sends heartbeat messages
-to all of the other servers to establish its authority and prevent new elections.
-*/
 void Server::sendRequestVote(const ServerInfo& server_info) {
-  /*
+
   std::println("[server@{}]: sendRequestVote to={}. term={}",
     port_,
     server_info.port_,
     praftservice_->state().current_term_);
-  */
+
   struct sockaddr_in their_addr; // connector's address info
   memset(&their_addr, 0, sizeof(their_addr));
   their_addr.sin_family = AF_INET;     // host byte order
@@ -617,22 +610,20 @@ void Server::sendRequestVote(const ServerInfo& server_info) {
 // If votedFor is null or candidateId, and candidate’s log is at
 //    least as up-to-date as receiver’s log, grant vote
 // at most one vote in a given term
-void Server::sendRequestVoteResponse(std::string_view request, const SenderInfo& sender_info) {
-  /*
+bool Server::sendRequestVoteResponse(std::string_view request, const SenderInfo& sender_info) {
   std::println("[server@{}]: sendRequestVoteResponse term={}",
     port_,
     praftservice_->state().current_term_);
-  */
-  if (praftservice_->state().voted_in_current_term) {
+  if (praftservice_->state().voted_in_current_term_) {
     //std::println("[server@{}]: sendRequestVoteResponse term={} -- not voting in current term. already voted", port_,
     //             praftservice_->state().current_term_);
-    return;
+    return false;
   }
 
   const RequestVoteRPC* preq = GetRequestVoteRPC(static_cast<const void*>(request.data()));
   if (!preq) {
     std::cerr << "sendRequestVoteResponse preq null\n";
-    return;
+    return false;
   }
 
   const int term = preq->term();
@@ -646,16 +637,9 @@ void Server::sendRequestVoteResponse(std::string_view request, const SenderInfo&
       (!last_voted_for || 
       (*last_voted_for == preq->candidate_id())) &&
       preq->last_log_index() >= praftservice_->state().commit_index_) {
-
-    /*
-    std::println("[server@{}]: granting vote to={}, term={}",
-      port_,
-      term,
-      preq->candidate_id());
-    */
     praftservice_->state().voted_for_ = preq->candidate_id();
     vote_granted = true;
-    praftservice_->state().voted_in_current_term = true;
+    praftservice_->state().voted_in_current_term_ = true;
   }
   
   flatbuffers::FlatBufferBuilder fbb{1024};
@@ -671,6 +655,13 @@ void Server::sendRequestVoteResponse(std::string_view request, const SenderInfo&
     perror("sendto");
     std::cerr << "error sending requestvote response\n";
   }
+
+  std::println("[server@{}]: vote_granted={}, to={} for term={}", port_,
+              vote_granted,
+               preq->candidate_id(),
+               term);
+
+  return vote_granted;
 }
 
 void Server::sendHeartBeat(size_t server_idx) {
@@ -723,6 +714,8 @@ void Server::sendHeartBeatResponse(std::string_view request, const SenderInfo& s
   if (preq->term() < curr_term) { 
     success = false;
   }
+
+  praftservice_->state().current_term_ = curr_term;
 
   flatbuffers::FlatBufferBuilder fbb{1024};
   auto o = CreateAppendEntriesRPCReply(fbb, curr_term, success);
