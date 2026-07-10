@@ -357,12 +357,14 @@ State Server::doCandidateLoop() {
 
       if (praftservice_->hasHigherTerm(buf).first) {
         {
+          const int higher_term = praftservice_->hasHigherTerm(buf).second;
           std::println("[server@{}]: CandidateLoop complete. found higher "
-                       "term. curr_term={}",
-                       port_, praftservice_->state().current_term_);
+                       "term. curr_term={}, higher term={}",
+                       port_, praftservice_->state().current_term_,
+                       higher_term);
           std::lock_guard lck{candidate_loop_mutex_};
           praftservice_->state().state_ = State::Follower;
-          praftservice_->state().current_term_ = praftservice_->hasHigherTerm(buf).second;
+          praftservice_->state().current_term_ = higher_term; 
         }
         candidate_loop_cv_.notify_one();
         break;
@@ -386,14 +388,14 @@ State Server::doCandidateLoop() {
       } else if (praftservice_->hasRequestVoteRequest(buf)) {
         std::println("[server@{}]: respond to requestVote", port_);
         sendRequestVoteResponse(buf, recv_data.si);
-      } else if (praftservice_->hasAppendEntriesRequest(buf).first) {
+      } else if (praftservice_->hasHeartBeatInRequest(buf)) {
            std::println("[server@{}]: got HeartBeat. CandidateLoop complete. change state to "
                        "Follower. term={}",
-                       port_, praftservice_->state().current_term_);       
+                       port_, praftservice_->state().current_term_);
+        sendHeartBeatResponse(buf, recv_data.si);
         {
           std::lock_guard lck{candidate_loop_mutex_};
           praftservice_->state().state_ = State::Follower;
-          praftservice_->state().current_term_ = praftservice_->hasAppendEntriesRequest(buf).second;
         }
         candidate_loop_cv_.notify_one();
         break;
@@ -615,8 +617,8 @@ bool Server::sendRequestVoteResponse(std::string_view request, const SenderInfo&
     port_,
     praftservice_->state().current_term_);
   if (praftservice_->state().voted_in_current_term_) {
-    //std::println("[server@{}]: sendRequestVoteResponse term={} -- not voting in current term. already voted", port_,
-    //             praftservice_->state().current_term_);
+    std::println("[server@{}]: sendRequestVoteResponse term={} -- not voting in current term. already voted", port_,
+                 praftservice_->state().current_term_);
     return false;
   }
 
@@ -633,10 +635,7 @@ bool Server::sendRequestVoteResponse(std::string_view request, const SenderInfo&
 
   bool vote_granted{false};
 
-  if (term >= curr_term && 
-      (!last_voted_for || 
-      (*last_voted_for == preq->candidate_id())) &&
-      preq->last_log_index() >= praftservice_->state().commit_index_) {
+  if (term >= curr_term && (preq->last_log_index() >= praftservice_->state().commit_index_)) {
     praftservice_->state().voted_for_ = preq->candidate_id();
     vote_granted = true;
     praftservice_->state().voted_in_current_term_ = true;
@@ -656,10 +655,11 @@ bool Server::sendRequestVoteResponse(std::string_view request, const SenderInfo&
     std::cerr << "error sending requestvote response\n";
   }
 
-  std::println("[server@{}]: vote_granted={}, to={} for term={}", port_,
+  std::println("[server@{}]: vote_granted={}, to={} for term={}",
+              port_,
               vote_granted,
-               preq->candidate_id(),
-               term);
+              preq->candidate_id(),
+              term);
 
   return vote_granted;
 }
