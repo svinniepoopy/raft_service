@@ -23,6 +23,8 @@ class Server {
     Server(int cluster_size, int server_idx, std::string servers); 
     ~Server();
   private:
+    void startCommandListener();
+
     // server main loop
     void start();
     
@@ -33,7 +35,7 @@ class Server {
 
     // senders
     void sendRequestVote(const ServerInfo&);
-    void sendRequestVoteResponse(std::string_view request, const SenderInfo&);
+    bool sendRequestVoteResponse(std::string_view request, const SenderInfo&);
 
     void sendHeartBeat(size_t /*server_idx*/);
     void sendHeartBeatResponse(std::string_view request, const SenderInfo&);
@@ -56,7 +58,6 @@ class Server {
     int sockfd_;
     std::unique_ptr<RaftService> praftservice_;
 
-    int id_;
     int numservers_;
     std::vector<ServerInfo> servers_;
 };
