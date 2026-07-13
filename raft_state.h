@@ -38,7 +38,7 @@ struct RaftState {
 
   std::optional<CandidateId> voted_for_;
 
-  std::vector<Entry> commit_log;
+  std::vector<Entry> commit_log_;
 
   /* end persistent state */
 };

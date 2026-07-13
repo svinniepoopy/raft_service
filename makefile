@@ -8,11 +8,15 @@ raft-runner : main.cpp
 raft_service.o : raft_service.cpp raft_state.h
 			$(CXX) $(CXXFLAGS) $(INCLUDES) -c raft_service.cpp 
 
+
+command.o  : command.cpp command.h
+			$(CXX) $(CXXFLAGS) $(INCLUDES) -c command.cpp 
+
 server.o : server.cpp raft_service.o server.h raft_state.h server_info.h
 			$(CXX) $(CXXFLAGS) $(INCLUDES) -c server.cpp
 
 server : server.cpp raft_service.o server.h raft_state.h server_info.h
-			$(CXX) $(CXXFLAGS) $(INCLUDES)  server.cpp raft_service.o -o server
+			$(CXX) $(CXXFLAGS) $(INCLUDES)  server.cpp raft_service.o command.o -o server
 
 clean :
 	rm -rf raft-runner *.o

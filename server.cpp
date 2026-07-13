@@ -80,9 +80,9 @@ std::string StateToString(State state) {
 } // end anonymous namespace
 
 Server::Server(int cluster_size, int server_idx, std::string server_info)
-    : praftservice_{std::make_unique<RaftService>()},
-    numservers_{cluster_size} {
-  
+    : numservers_{cluster_size},
+      praftservice_{std::make_unique<RaftService>()} {
+
   praftservice_->state().id_ = server_idx;
 
   servers_ = ExtractServerInfo(server_info);
@@ -256,7 +256,7 @@ State Server::doFollowerLoop() {
   std::println("[server@{}]: doFollowerLoopWait: timeout in={}", port_,
                timeout_duration);
   while (true) {
-    auto cv_status = std::cv_status::no_timeout;
+    [[maybe_unused]] auto cv_status = std::cv_status::no_timeout;
     {
       std::unique_lock lck{timer_mutex_};
       cv_status = timer_cv.wait_for(lck, timeout_duration);
@@ -286,7 +286,7 @@ State Server::doCandidateLoop() {
     praftservice_->state().current_term_);
 
   const size_t required_votes = numservers_/ 2 + 1;
-  int num_votes{1};
+  size_t num_votes{1};
   std::jthread message_processing_thr{[&](std::stop_token stop_token) {
     std::println("[server@{}]: start message_processing_thr", port_);
     while (!stop_token.stop_requested()) {
@@ -350,7 +350,7 @@ State Server::doCandidateLoop() {
     }
   }};
    
-  std::cv_status status{std::cv_status::no_timeout};
+  [[maybe_unused]] std::cv_status status{std::cv_status::no_timeout};
   while (true) {
     for (int i{}; i < numservers_; ++i) {
       if (i == praftservice_->state().id_) {
@@ -440,7 +440,7 @@ State Server::doLeaderLoop() {
             // respond to client
             commandq_.pop_front();
             // command safely replicated on majority. update the commit index.
-            praftservice_->state().commit_index_ = praftservice_->state().commit_log.size();
+            praftservice_->state().commit_index_ = praftservice_->state().commit_log_.size();
           }
         }
       } else if (praftservice_->hasAppendEntriesReply(buf) && praftservice_->entryReplicated(buf)) {
@@ -455,9 +455,8 @@ State Server::doLeaderLoop() {
           praftservice_->state().state_ = State::Follower;
           praftservice_->state().current_term_ = praftservice_->hasHigherTerm(buf).second;
         }
-        timer_cv_.notify_one()
-            std::println("[server@{}]: entry safely replicated", port_);
-        ;
+        std::println("[server@{}]: entry safely replicated", port_);
+        timer_cv_.notify_one();
         break;
       }
       if (praftservice_->hasHeartBeatInResponse(buf)) {
@@ -609,41 +608,38 @@ bool Server::sendRequestVoteResponse(std::string_view request, const SenderInfo&
 
 void Server::sendAppendEntries(const Message& message, size_t server_idx) {
   // add the command locally in the commit log
-  commit_log.push_back(
-    {
-      .term = praftservice_->state().curr_term_,
-      .command = message.msg
-    });
+  praftservice_->state().commit_log_.push_back(Entry{praftservice_->state().current_term_, message.msg});
   
   // update commitIndex
 
-  int term = praftservice_->state().curr_term_;
+  int term = praftservice_->state().current_term_;
   int leader_id = praftservice_->state().id_;
 
-  int leader_commit = praftservice_->state().commit_log.size();
+  int leader_commit = praftservice_->state().commit_log_.size();
 
   int prev_log_index = leader_commit - 1; 
   int prev_log_term = term - 1;
 
+  flatbuffers::FlatBufferBuilder builder;
+  
   std::vector<::flatbuffers::Offset<::flatbuffers::String>> entries_v;
-  entries.push_back(message.msg);
+  auto fb_str = builder.CreateString(message.msg.c_str());
+  entries_v.push_back(fb_str);
 
-  auto entries = builder.CreateVector(entries_v, 1);
-
-  flatbuffers::FlatBufferBuilder fbb{1024};
+  auto entries = builder.CreateVector(entries_v);
   auto off = CreateAppendEntriesRPC(
-    fbb,
+    builder,
     term,
     leader_id,
     prev_log_index,
     prev_log_term,
-    &entries,
+    entries,
     leader_commit
   );
-  fbb.Finish(off);
+  builder.Finish(off);
 
-  uint8_t* buf = fbb.GetBufferPointer();
-  int size = fbb.GetSize();
+  uint8_t* buf = builder.GetBufferPointer();
+  int size = builder.GetSize();
  
   const auto server_info = servers_[server_idx];
   struct sockaddr_in their_addr; // connector's address info
@@ -658,8 +654,47 @@ void Server::sendAppendEntries(const Message& message, size_t server_idx) {
   }
 }
 
-void Server::sendAppendEntriesResponse(std::string_view response, const SenderInfo& si) {
+void Server::sendAppendEntriesResponse(std::string_view request, const SenderInfo& sender_info) {
+  const void* pbuf = static_cast<const void*>(request.data());  
+  const AppendEntriesRPC* preq = GetAppendEntriesRPC(pbuf);
+ 
+  const int term = preq->term();
+  [[maybe_unused]] const int leader_id = preq->leader_id();
+  const int prev_log_index = preq->prev_log_index();
+  const int prev_log_term = preq->prev_log_term();
+  const auto entries = preq->entries();
+  const int leader_commit = preq->leader_commit();
+
+  bool success{true};
+  int curr_term = praftservice_->state().current_term_;
+  if (term < curr_term) {
+    success = false;
+  }
+  auto& log = praftservice_->state().commit_log_;
+  if (log.empty()) {
+    log.push_back((*entries)[0]);
+  } else if (log[prev_log_index].term != prev_log_term) {
+    success = false;
+  }
   
+  // bring follower's log into consistent state
+  if ((log.size() > prev_log_index+1) && log[prev_log_index+1].term != term) {
+    log.erase(log.begin() + prev_log_index + 1, log.end());
+  } 
+  log.push_back((*entries)[0]);
+
+  flatbuffers::FlatBufferBuilder fbb{1024};
+  auto o = CreateAppendEntriesRPCReply(fbb, curr_term, success);
+  fbb.Finish(o);
+  
+  uint8_t* reply_buf = fbb.GetBufferPointer();
+  int size = fbb.GetSize();
+  
+  int ret = ::sendto(sockfd_, reply_buf, size, 0,
+    (struct sockaddr*)&sender_info.peer_addr, sender_info.peer_addrlen);
+  if (ret != size) {
+    std::cerr << "error sending heartbeat response\n";
+  }   
 }
 
 void Server::sendHeartBeat(size_t server_idx) {

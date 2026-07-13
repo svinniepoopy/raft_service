@@ -50,7 +50,7 @@ bool RaftService::hasHeartBeatInRequest(std::string_view buf) {
     return false; 
   } 
   auto entries = rpc->entries();
-  return entries != nullptr;
+  return entries != nullptr && entries->empty();
 }
 
 bool RaftService::hasHeartBeatInResponse(std::string_view buf) {

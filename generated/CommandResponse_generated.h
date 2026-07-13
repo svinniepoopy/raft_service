@@ -13,11 +13,11 @@ static_assert(FLATBUFFERS_VERSION_MAJOR == 25 &&
               FLATBUFFERS_VERSION_REVISION == 19,
              "Non-compatible flatbuffers version included");
 
-struct ClientCommandResponse;
-struct ClientCommandResponseBuilder;
+struct CommandResponse;
+struct CommandResponseBuilder;
 
-struct ClientCommandResponse FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
-  typedef ClientCommandResponseBuilder Builder;
+struct CommandResponse FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
+  typedef CommandResponseBuilder Builder;
   enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
     VT_SUCCESS = 4
   };
@@ -32,61 +32,61 @@ struct ClientCommandResponse FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Ta
   }
 };
 
-struct ClientCommandResponseBuilder {
-  typedef ClientCommandResponse Table;
+struct CommandResponseBuilder {
+  typedef CommandResponse Table;
   ::flatbuffers::FlatBufferBuilder &fbb_;
   ::flatbuffers::uoffset_t start_;
   void add_success(bool success) {
-    fbb_.AddElement<uint8_t>(ClientCommandResponse::VT_SUCCESS, static_cast<uint8_t>(success), 0);
+    fbb_.AddElement<uint8_t>(CommandResponse::VT_SUCCESS, static_cast<uint8_t>(success), 0);
   }
-  explicit ClientCommandResponseBuilder(::flatbuffers::FlatBufferBuilder &_fbb)
+  explicit CommandResponseBuilder(::flatbuffers::FlatBufferBuilder &_fbb)
         : fbb_(_fbb) {
     start_ = fbb_.StartTable();
   }
-  ::flatbuffers::Offset<ClientCommandResponse> Finish() {
+  ::flatbuffers::Offset<CommandResponse> Finish() {
     const auto end = fbb_.EndTable(start_);
-    auto o = ::flatbuffers::Offset<ClientCommandResponse>(end);
+    auto o = ::flatbuffers::Offset<CommandResponse>(end);
     return o;
   }
 };
 
-inline ::flatbuffers::Offset<ClientCommandResponse> CreateClientCommandResponse(
+inline ::flatbuffers::Offset<CommandResponse> CreateCommandResponse(
     ::flatbuffers::FlatBufferBuilder &_fbb,
     bool success = false) {
-  ClientCommandResponseBuilder builder_(_fbb);
+  CommandResponseBuilder builder_(_fbb);
   builder_.add_success(success);
   return builder_.Finish();
 }
 
-inline const ClientCommandResponse *GetClientCommandResponse(const void *buf) {
-  return ::flatbuffers::GetRoot<ClientCommandResponse>(buf);
+inline const CommandResponse *GetCommandResponse(const void *buf) {
+  return ::flatbuffers::GetRoot<CommandResponse>(buf);
 }
 
-inline const ClientCommandResponse *GetSizePrefixedClientCommandResponse(const void *buf) {
-  return ::flatbuffers::GetSizePrefixedRoot<ClientCommandResponse>(buf);
-}
-
-template <bool B = false>
-inline bool VerifyClientCommandResponseBuffer(
-    ::flatbuffers::VerifierTemplate<B> &verifier) {
-  return verifier.template VerifyBuffer<ClientCommandResponse>(nullptr);
+inline const CommandResponse *GetSizePrefixedCommandResponse(const void *buf) {
+  return ::flatbuffers::GetSizePrefixedRoot<CommandResponse>(buf);
 }
 
 template <bool B = false>
-inline bool VerifySizePrefixedClientCommandResponseBuffer(
+inline bool VerifyCommandResponseBuffer(
     ::flatbuffers::VerifierTemplate<B> &verifier) {
-  return verifier.template VerifySizePrefixedBuffer<ClientCommandResponse>(nullptr);
+  return verifier.template VerifyBuffer<CommandResponse>(nullptr);
 }
 
-inline void FinishClientCommandResponseBuffer(
+template <bool B = false>
+inline bool VerifySizePrefixedCommandResponseBuffer(
+    ::flatbuffers::VerifierTemplate<B> &verifier) {
+  return verifier.template VerifySizePrefixedBuffer<CommandResponse>(nullptr);
+}
+
+inline void FinishCommandResponseBuffer(
     ::flatbuffers::FlatBufferBuilder &fbb,
-    ::flatbuffers::Offset<ClientCommandResponse> root) {
+    ::flatbuffers::Offset<CommandResponse> root) {
   fbb.Finish(root);
 }
 
-inline void FinishSizePrefixedClientCommandResponseBuffer(
+inline void FinishSizePrefixedCommandResponseBuffer(
     ::flatbuffers::FlatBufferBuilder &fbb,
-    ::flatbuffers::Offset<ClientCommandResponse> root) {
+    ::flatbuffers::Offset<CommandResponse> root) {
   fbb.FinishSizePrefixed(root);
 }
 
