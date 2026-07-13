@@ -24,6 +24,7 @@ public:
   // append entries
   std::pair<bool, int> hasAppendEntriesRequest(std::string_view);
   bool hasAppendEntriesReply(std::string_view);
+  bool entryReplicated(std::string_view);
 
   const RaftState &state() const { return raftstate_; }
 

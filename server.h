@@ -5,17 +5,25 @@
 #include "server_info.h"
 
 class RaftService;
+class Command;
 
 #include <condition_variable>
+#include <deque>
 #include <memory>
 #include <mutex>
 #include <string>
 #include <vector>
 #include <stop_token>
+#include <thread>
 
 struct Message {
   std::string msg;
   SenderInfo si;
+};
+
+struct CommandMessage : Message {
+  bool append_entries_sent{false};
+  size_t num_replicated{};
 };
 
 class Server {
@@ -23,7 +31,7 @@ class Server {
     Server(int cluster_size, int server_idx, std::string servers); 
     ~Server();
   private:
-    void startCommandListener();
+    void startMessageReceiver();
 
     // server main loop
     void start();
@@ -39,6 +47,8 @@ class Server {
 
     void sendHeartBeat(size_t /*server_idx*/);
     void sendHeartBeatResponse(std::string_view request, const SenderInfo&);
+
+    void sendAppendEntries(const Message&, size_t /*server_idx*/);
 
     std::condition_variable_any timer_cv_;
     std::mutex timer_mutex_;
@@ -56,10 +66,18 @@ class Server {
 
     int port_;
     int sockfd_;
-    std::unique_ptr<RaftService> praftservice_;
 
     int numservers_;
     std::vector<ServerInfo> servers_;
+
+    std::mutex messages_mutex_;
+    std::condition_variable_any messages_cv_;
+    std::deque<Message> messageq_;
+    std::jthread message_receiver_thr_;
+
+    std::deque<CommandMessage> commandq_;
+    std::unique_ptr<RaftService> praftservice_;
+    std::unique_ptr<Command> pcommand_;
 };
 
 #endif // SERVER_H

@@ -40,7 +40,7 @@ struct RaftState {
 
   std::vector<Entry> commit_log;
 
-  /* end perisistent state */
+  /* end persistent state */
 };
 
 struct LeaderState {

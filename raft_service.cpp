@@ -66,7 +66,7 @@ bool RaftService::hasVoteInRequestVoteResponse(std::string_view buf) {
   const RequestVoteRPCReply* reply = GetRequestVoteRPCReply(pbuf);
 
   if (!reply) {
-    return false;
+    return false;std::string_view
   }
   return reply->vote_granted();
 }

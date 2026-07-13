@@ -1,0 +1,5 @@
+table CommandResponse {
+    success:bool;
+}
+
+root_type CommandResponse;
