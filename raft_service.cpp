@@ -49,7 +49,8 @@ bool RaftService::hasHeartBeatInRequest(std::string_view buf) {
   if (!rpc) {
     return false; 
   } 
-  return true; 
+  auto entries = rpc->entries();
+  return entries != nullptr;
 }
 
 bool RaftService::hasHeartBeatInResponse(std::string_view buf) {
@@ -64,21 +65,14 @@ bool RaftService::hasHeartBeatInResponse(std::string_view buf) {
 bool RaftService::hasVoteInRequestVoteResponse(std::string_view buf) {
   const void* pbuf = static_cast<const void*>(buf.data());
   const RequestVoteRPCReply* reply = GetRequestVoteRPCReply(pbuf);
-
-  if (!reply) {
-    return false;std::string_view
-  }
-  return reply->vote_granted();
+  return reply ? reply->vote_granted() : false;
 }
 
 // append entries
-std::pair<bool, int> RaftService::hasAppendEntriesRequest(std::string_view buf) {
+bool RaftService::hasAppendEntriesRequest(std::string_view buf) {
   const void* pbuf = static_cast<const void*>(buf.data());
   const AppendEntriesRPC* reply = GetAppendEntriesRPC(pbuf);
-  if (reply) {
-    return {true, reply->term()};
-  }
-  return {false, raftstate_.current_term_}; 
+  return reply != nullptr;
 }
 
 bool RaftService::hasAppendEntriesReply(std::string_view buf) {

@@ -22,7 +22,7 @@ public:
   bool hasVoteInRequestVoteResponse(std::string_view);
 
   // append entries
-  std::pair<bool, int> hasAppendEntriesRequest(std::string_view);
+  bool hasAppendEntriesRequest(std::string_view);
   bool hasAppendEntriesReply(std::string_view);
   bool entryReplicated(std::string_view);
 

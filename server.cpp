@@ -224,7 +224,13 @@ State Server::doFollowerLoop() {
 
       std::string_view buf{recv_data.msg};
 
-      if (praftservice_->hasHeartBeatInRequest(buf)) {
+      if (praftservice_->hasAppendEntriesRequest(buf)) {
+        sendAppendEntriesResponse(buf, recv_data.si);
+        {
+          std::lock_guard lck{timer_mutex_};
+          has_response = true;
+        }
+      } else if (praftservice_->hasHeartBeatInRequest(buf)) {
         sendHeartBeatResponse(buf, recv_data.si);
         std::println("[server@{}]: send heartbeat", port_);
         {
@@ -397,6 +403,7 @@ State Server::doLeaderLoop() {
 
   std::jthread message_processing_thr{[&](std::stop_token stop_token) {
     while (!stop_token.stop_requested()) {
+
       std::unique_lock lck{messages_mutex_};
       auto pred = [&]() { return !messageq_.empty(); };
       if (!messages_cv_.wait(lck, stop_token, pred)) {
@@ -429,8 +436,11 @@ State Server::doLeaderLoop() {
         if (praftservice_->hasAppendEntriesReply(buf)) {
           ++commandq_.front().num_replicated;
           if (commandq_.front().num_replicated >= required_votes) {
+            
             // respond to client
-            commandq_.pop_front();            
+            commandq_.pop_front();
+            // command safely replicated on majority. update the commit index.
+            praftservice_->state().commit_index_ = praftservice_->state().commit_log.size();
           }
         }
       } else if (praftservice_->hasAppendEntriesReply(buf) && praftservice_->entryReplicated(buf)) {
@@ -598,12 +608,61 @@ bool Server::sendRequestVoteResponse(std::string_view request, const SenderInfo&
 }
 
 void Server::sendAppendEntries(const Message& message, size_t server_idx) {
+  // add the command locally in the commit log
+  commit_log.push_back(
+    {
+      .term = praftservice_->state().curr_term_,
+      .command = message.msg
+    });
+  
+  // update commitIndex
+
+  int term = praftservice_->state().curr_term_;
+  int leader_id = praftservice_->state().id_;
+
+  int leader_commit = praftservice_->state().commit_log.size();
+
+  int prev_log_index = leader_commit - 1; 
+  int prev_log_term = term - 1;
+
+  std::vector<::flatbuffers::Offset<::flatbuffers::String>> entries_v;
+  entries.push_back(message.msg);
+
+  auto entries = builder.CreateVector(entries_v, 1);
+
+  flatbuffers::FlatBufferBuilder fbb{1024};
+  auto off = CreateAppendEntriesRPC(
+    fbb,
+    term,
+    leader_id,
+    prev_log_index,
+    prev_log_term,
+    &entries,
+    leader_commit
+  );
+  fbb.Finish(off);
+
+  uint8_t* buf = fbb.GetBufferPointer();
+  int size = fbb.GetSize();
+ 
+  const auto server_info = servers_[server_idx];
+  struct sockaddr_in their_addr; // connector's address info
+  memset(&their_addr, 0, sizeof(their_addr));
+  their_addr.sin_family = AF_INET;     // host byte order
+  their_addr.sin_port = htons(server_info.port_); // network byte order
+  their_addr.sin_addr.s_addr = htonl(INADDR_ANY); // network byte order 
+
+  if (sendto(sockfd_, buf, size, 0, (struct sockaddr*)&their_addr, sizeof(their_addr)) != size) {
+    perror("sendto");
+    fprintf(stderr, "error sending REQUEST VOTE");
+  }
+}
+
+void Server::sendAppendEntriesResponse(std::string_view response, const SenderInfo& si) {
   
 }
 
 void Server::sendHeartBeat(size_t server_idx) {
-  auto server_info = servers_[server_idx];
- 
   /*
   std::println("[server@{}]: sendHeartBeat to={}. term={}",
     port_,
@@ -619,7 +678,8 @@ void Server::sendHeartBeat(size_t server_idx) {
 
   uint8_t* buf = fbb.GetBufferPointer();
   int size = fbb.GetSize();
-  
+ 
+  const auto server_info = servers_[server_idx];
   struct sockaddr_in their_addr; // connector's address info
   memset(&their_addr, 0, sizeof(their_addr));
   their_addr.sin_family = AF_INET;     // host byte order
