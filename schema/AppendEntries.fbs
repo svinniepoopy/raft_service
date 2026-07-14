@@ -10,12 +10,17 @@
 // term
 // success: bool
 
+table LogEntry {
+    term:int;
+    command:string;
+}
+
 table AppendEntriesRPC {
     term:int;
     leader_id:int;
     prev_log_index:int;
     prev_log_term:int;
-    entries:[string];
+    entries:[LogEntry];
     leader_commit:int;
 }
 

@@ -13,8 +13,75 @@ static_assert(FLATBUFFERS_VERSION_MAJOR == 25 &&
               FLATBUFFERS_VERSION_REVISION == 19,
              "Non-compatible flatbuffers version included");
 
+struct LogEntry;
+struct LogEntryBuilder;
+
 struct AppendEntriesRPC;
 struct AppendEntriesRPCBuilder;
+
+struct LogEntry FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
+  typedef LogEntryBuilder Builder;
+  enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
+    VT_TERM = 4,
+    VT_COMMAND = 6
+  };
+  int32_t term() const {
+    return GetField<int32_t>(VT_TERM, 0);
+  }
+  const ::flatbuffers::String *command() const {
+    return GetPointer<const ::flatbuffers::String *>(VT_COMMAND);
+  }
+  template <bool B = false>
+  bool Verify(::flatbuffers::VerifierTemplate<B> &verifier) const {
+    return VerifyTableStart(verifier) &&
+           VerifyField<int32_t>(verifier, VT_TERM, 4) &&
+           VerifyOffset(verifier, VT_COMMAND) &&
+           verifier.VerifyString(command()) &&
+           verifier.EndTable();
+  }
+};
+
+struct LogEntryBuilder {
+  typedef LogEntry Table;
+  ::flatbuffers::FlatBufferBuilder &fbb_;
+  ::flatbuffers::uoffset_t start_;
+  void add_term(int32_t term) {
+    fbb_.AddElement<int32_t>(LogEntry::VT_TERM, term, 0);
+  }
+  void add_command(::flatbuffers::Offset<::flatbuffers::String> command) {
+    fbb_.AddOffset(LogEntry::VT_COMMAND, command);
+  }
+  explicit LogEntryBuilder(::flatbuffers::FlatBufferBuilder &_fbb)
+        : fbb_(_fbb) {
+    start_ = fbb_.StartTable();
+  }
+  ::flatbuffers::Offset<LogEntry> Finish() {
+    const auto end = fbb_.EndTable(start_);
+    auto o = ::flatbuffers::Offset<LogEntry>(end);
+    return o;
+  }
+};
+
+inline ::flatbuffers::Offset<LogEntry> CreateLogEntry(
+    ::flatbuffers::FlatBufferBuilder &_fbb,
+    int32_t term = 0,
+    ::flatbuffers::Offset<::flatbuffers::String> command = 0) {
+  LogEntryBuilder builder_(_fbb);
+  builder_.add_command(command);
+  builder_.add_term(term);
+  return builder_.Finish();
+}
+
+inline ::flatbuffers::Offset<LogEntry> CreateLogEntryDirect(
+    ::flatbuffers::FlatBufferBuilder &_fbb,
+    int32_t term = 0,
+    const char *command = nullptr) {
+  auto command__ = command ? _fbb.CreateString(command) : 0;
+  return CreateLogEntry(
+      _fbb,
+      term,
+      command__);
+}
 
 struct AppendEntriesRPC FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
   typedef AppendEntriesRPCBuilder Builder;
@@ -38,8 +105,8 @@ struct AppendEntriesRPC FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
   int32_t prev_log_term() const {
     return GetField<int32_t>(VT_PREV_LOG_TERM, 0);
   }
-  const ::flatbuffers::Vector<::flatbuffers::Offset<::flatbuffers::String>> *entries() const {
-    return GetPointer<const ::flatbuffers::Vector<::flatbuffers::Offset<::flatbuffers::String>> *>(VT_ENTRIES);
+  const ::flatbuffers::Vector<::flatbuffers::Offset<LogEntry>> *entries() const {
+    return GetPointer<const ::flatbuffers::Vector<::flatbuffers::Offset<LogEntry>> *>(VT_ENTRIES);
   }
   int32_t leader_commit() const {
     return GetField<int32_t>(VT_LEADER_COMMIT, 0);
@@ -53,7 +120,7 @@ struct AppendEntriesRPC FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
            VerifyField<int32_t>(verifier, VT_PREV_LOG_TERM, 4) &&
            VerifyOffset(verifier, VT_ENTRIES) &&
            verifier.VerifyVector(entries()) &&
-           verifier.VerifyVectorOfStrings(entries()) &&
+           verifier.VerifyVectorOfTables(entries()) &&
            VerifyField<int32_t>(verifier, VT_LEADER_COMMIT, 4) &&
            verifier.EndTable();
   }
@@ -75,7 +142,7 @@ struct AppendEntriesRPCBuilder {
   void add_prev_log_term(int32_t prev_log_term) {
     fbb_.AddElement<int32_t>(AppendEntriesRPC::VT_PREV_LOG_TERM, prev_log_term, 0);
   }
-  void add_entries(::flatbuffers::Offset<::flatbuffers::Vector<::flatbuffers::Offset<::flatbuffers::String>>> entries) {
+  void add_entries(::flatbuffers::Offset<::flatbuffers::Vector<::flatbuffers::Offset<LogEntry>>> entries) {
     fbb_.AddOffset(AppendEntriesRPC::VT_ENTRIES, entries);
   }
   void add_leader_commit(int32_t leader_commit) {
@@ -98,7 +165,7 @@ inline ::flatbuffers::Offset<AppendEntriesRPC> CreateAppendEntriesRPC(
     int32_t leader_id = 0,
     int32_t prev_log_index = 0,
     int32_t prev_log_term = 0,
-    ::flatbuffers::Offset<::flatbuffers::Vector<::flatbuffers::Offset<::flatbuffers::String>>> entries = 0,
+    ::flatbuffers::Offset<::flatbuffers::Vector<::flatbuffers::Offset<LogEntry>>> entries = 0,
     int32_t leader_commit = 0) {
   AppendEntriesRPCBuilder builder_(_fbb);
   builder_.add_leader_commit(leader_commit);
@@ -116,9 +183,9 @@ inline ::flatbuffers::Offset<AppendEntriesRPC> CreateAppendEntriesRPCDirect(
     int32_t leader_id = 0,
     int32_t prev_log_index = 0,
     int32_t prev_log_term = 0,
-    const std::vector<::flatbuffers::Offset<::flatbuffers::String>> *entries = nullptr,
+    const std::vector<::flatbuffers::Offset<LogEntry>> *entries = nullptr,
     int32_t leader_commit = 0) {
-  auto entries__ = entries ? _fbb.CreateVector<::flatbuffers::Offset<::flatbuffers::String>>(*entries) : 0;
+  auto entries__ = entries ? _fbb.CreateVector<::flatbuffers::Offset<LogEntry>>(*entries) : 0;
   return CreateAppendEntriesRPC(
       _fbb,
       term,
