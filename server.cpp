@@ -621,10 +621,11 @@ void Server::sendAppendEntries(const Message& message, size_t server_idx) {
   int prev_log_term = term - 1;
 
   flatbuffers::FlatBufferBuilder builder;
-  
-  std::vector<::flatbuffers::Offset<::flatbuffers::String>> entries_v;
   auto fb_str = builder.CreateString(message.msg.c_str());
-  entries_v.push_back(fb_str);
+  auto log_entry = CreateLogEntry(builder, term, fb_str);)
+
+  std::vector<::flatbuffers::Offset<LogEntry>> entries_v;
+  entries_v.push_back(log_entry);
 
   auto entries = builder.CreateVector(entries_v);
   auto off = CreateAppendEntriesRPC(
@@ -663,6 +664,8 @@ void Server::sendAppendEntriesResponse(std::string_view request, const SenderInf
   const int prev_log_index = preq->prev_log_index();
   const int prev_log_term = preq->prev_log_term();
   const auto entries = preq->entries();
+  std::string cmd{entries->Get(0)->command()->str()};
+  int cmd_term = entries->Get(0)->term();
   const int leader_commit = preq->leader_commit();
 
   bool success{true};
@@ -672,16 +675,19 @@ void Server::sendAppendEntriesResponse(std::string_view request, const SenderInf
   }
   auto& log = praftservice_->state().commit_log_;
   if (log.empty()) {
-    log.push_back((*entries)[0]);
-  } else if (log[prev_log_index].term != prev_log_term) {
-    success = false;
+    log.push_back({cmd_term, cmd});
+  } else {
+    if (log[prev_log_index].term != prev_log_term) {
+      success = false;
+    } else {
+      // bring follower's log into consistent state
+      if ((log.size() > prev_log_index + 1) &&
+          log[prev_log_index + 1].term != term) {
+        log.erase(log.begin() + prev_log_index + 1, log.end());
+      }
+      log.push_back({cmd_term, cmd});
+    }
   }
-  
-  // bring follower's log into consistent state
-  if ((log.size() > prev_log_index+1) && log[prev_log_index+1].term != term) {
-    log.erase(log.begin() + prev_log_index + 1, log.end());
-  } 
-  log.push_back((*entries)[0]);
 
   flatbuffers::FlatBufferBuilder fbb{1024};
   auto o = CreateAppendEntriesRPCReply(fbb, curr_term, success);
