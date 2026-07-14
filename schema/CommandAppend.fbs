@@ -1,0 +1,6 @@
+table CommandAppend {
+    key:string;
+    arg:string;
+}
+
+root_type CommandAppend;

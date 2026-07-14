@@ -224,7 +224,9 @@ State Server::doFollowerLoop() {
 
       std::string_view buf{recv_data.msg};
 
-      if (praftservice_->hasAppendEntriesRequest(buf)) {
+      if (pcommand_->hasPut(buf)) {
+        sendLeaderRedirect(recv_data.si);
+      } else if (praftservice_->hasAppendEntriesRequest(buf)) {
         sendAppendEntriesResponse(buf, recv_data.si);
         {
           std::lock_guard lck{timer_mutex_};
@@ -302,7 +304,9 @@ State Server::doCandidateLoop() {
 
       std::string_view buf{recv_data.msg};
 
-      if (praftservice_->hasHigherTerm(buf).first) {
+      if (pcommand_->hasPut(buf)) {
+        sendLeaderRedirect(recv_data.si);
+      } else if (praftservice_->hasHigherTerm(buf).first) {
         {
           const int higher_term = praftservice_->hasHigherTerm(buf).second;
           std::println("[server@{}]: CandidateLoop complete. found higher "
@@ -423,7 +427,7 @@ State Server::doLeaderLoop() {
       std::string_view buf{recv_data.msg};
 
       if (!commandq_.empty() && !commandq_.front().append_entries_sent) {
-        for (int i{}; !idle && (i < numservers_); ++i) {
+        for (int i{}; i < numservers_; ++i) {
           if (i == praftservice_->state().id_) {
             continue;
           }
@@ -767,6 +771,10 @@ void Server::sendHeartBeatResponse(std::string_view request, const SenderInfo& s
   if (ret != size) {
     std::cerr << "error sending heartbeat response\n";
   }
+}
+
+void Server::sendLeaderRedirect(const SenderInfo& sender_info) {
+  
 }
 
 int proc_numeric_id{};

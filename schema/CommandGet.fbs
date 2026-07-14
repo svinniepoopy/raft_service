@@ -1,0 +1,6 @@
+
+table CommandGet {
+    key:string;
+}
+
+root_type CommandGet;

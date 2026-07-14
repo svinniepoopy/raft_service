@@ -3,13 +3,4 @@ table CommandPut {
     value:string;
 }
 
-//table CommandAppend {
-//    key:string;
-//    arg:string;
-//}
-
-//table CommandGet {
-//    key:string;
-//}
-
 root_type CommandPut;

@@ -43,6 +43,7 @@ struct RaftState {
   /* end persistent state */
 };
 
+// volatile state on leaders
 struct LeaderState {
   std::vector<int> next_index;
   std::vector<int> match_index;

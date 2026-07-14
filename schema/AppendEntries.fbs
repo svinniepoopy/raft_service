@@ -1,19 +1,4 @@
-
-// term
-// leaderid
-// prevLogIndex
-// prevLogTerm
-// entries [] -- empty for heartbeat
-// leaderCommit
-
-// -- returns 
-// term
-// success: bool
-
-table LogEntry {
-    term:int;
-    command:string;
-}
+include "LogEntry.fbs";
 
 table AppendEntriesRPC {
     term:int;

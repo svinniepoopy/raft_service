@@ -1,5 +1,6 @@
 table CommandResponse {
     success:bool;
+    leader_port:int;
 }
 
 root_type CommandResponse;

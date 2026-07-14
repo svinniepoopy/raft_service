@@ -1,0 +1,6 @@
+table LogEntry {
+    term:int;
+    command:string;
+}
+
+root_type LogEntry;

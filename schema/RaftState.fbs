@@ -1,0 +1,7 @@
+include "LogEntry.fbs";
+
+table RaftState {
+    current_term:int;
+    voted_for:int;
+    entries:[LogEntry];
+}
