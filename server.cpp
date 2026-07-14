@@ -622,7 +622,7 @@ void Server::sendAppendEntries(const Message& message, size_t server_idx) {
 
   flatbuffers::FlatBufferBuilder builder;
   auto fb_str = builder.CreateString(message.msg.c_str());
-  auto log_entry = CreateLogEntry(builder, term, fb_str);)
+  auto log_entry = CreateLogEntry(builder, term, fb_str);
 
   std::vector<::flatbuffers::Offset<LogEntry>> entries_v;
   entries_v.push_back(log_entry);
