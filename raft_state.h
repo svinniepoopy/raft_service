@@ -22,6 +22,8 @@ struct RaftState {
 
   int id_;
 
+  int leader_id_;
+
   State state_{State::Follower};
 
   // index of highest log entry known to be committed

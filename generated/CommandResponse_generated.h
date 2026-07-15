@@ -19,15 +19,20 @@ struct CommandResponseBuilder;
 struct CommandResponse FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
   typedef CommandResponseBuilder Builder;
   enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
-    VT_SUCCESS = 4
+    VT_SUCCESS = 4,
+    VT_LEADER_PORT = 6
   };
   bool success() const {
     return GetField<uint8_t>(VT_SUCCESS, 0) != 0;
+  }
+  int32_t leader_port() const {
+    return GetField<int32_t>(VT_LEADER_PORT, 0);
   }
   template <bool B = false>
   bool Verify(::flatbuffers::VerifierTemplate<B> &verifier) const {
     return VerifyTableStart(verifier) &&
            VerifyField<uint8_t>(verifier, VT_SUCCESS, 1) &&
+           VerifyField<int32_t>(verifier, VT_LEADER_PORT, 4) &&
            verifier.EndTable();
   }
 };
@@ -38,6 +43,9 @@ struct CommandResponseBuilder {
   ::flatbuffers::uoffset_t start_;
   void add_success(bool success) {
     fbb_.AddElement<uint8_t>(CommandResponse::VT_SUCCESS, static_cast<uint8_t>(success), 0);
+  }
+  void add_leader_port(int32_t leader_port) {
+    fbb_.AddElement<int32_t>(CommandResponse::VT_LEADER_PORT, leader_port, 0);
   }
   explicit CommandResponseBuilder(::flatbuffers::FlatBufferBuilder &_fbb)
         : fbb_(_fbb) {
@@ -52,8 +60,10 @@ struct CommandResponseBuilder {
 
 inline ::flatbuffers::Offset<CommandResponse> CreateCommandResponse(
     ::flatbuffers::FlatBufferBuilder &_fbb,
-    bool success = false) {
+    bool success = false,
+    int32_t leader_port = 0) {
   CommandResponseBuilder builder_(_fbb);
+  builder_.add_leader_port(leader_port);
   builder_.add_success(success);
   return builder_.Finish();
 }

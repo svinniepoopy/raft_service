@@ -13,12 +13,12 @@
 #include <unistd.h>
 #include <fcntl.h>
 
-int main(int argc, char** argv) {
+int main(int argc, char* argv[]) {
 
   flatbuffers::FlatBufferBuilder builder;
 
-  std::string key{"x"};
-  std::string val{"42"};
+  std::string key{argv[2]};
+  std::string val{argv[3]};
   auto fb_key = builder.CreateString(key.c_str());
   auto fb_val = builder.CreateString(val.c_str());
 

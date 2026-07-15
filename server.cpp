@@ -664,7 +664,6 @@ void Server::sendAppendEntriesResponse(std::string_view request, const SenderInf
   const AppendEntriesRPC* preq = GetAppendEntriesRPC(pbuf);
  
   const int term = preq->term();
-  [[maybe_unused]] const int leader_id = preq->leader_id();
   const int prev_log_index = preq->prev_log_index();
   const int prev_log_term = preq->prev_log_term();
   const auto entries = preq->entries();
@@ -691,6 +690,10 @@ void Server::sendAppendEntriesResponse(std::string_view request, const SenderInf
       }
       log.push_back({cmd_term, cmd});
     }
+  }
+
+  if (success) {
+    praftservice_->state().leader_id_ = preq->leader_id(); 
   }
 
   flatbuffers::FlatBufferBuilder fbb{1024};
@@ -757,6 +760,7 @@ void Server::sendHeartBeatResponse(std::string_view request, const SenderInfo& s
     success = false;
   }
 
+  praftservice_->state().leader_id_ = preq->leader_id();
   praftservice_->state().current_term_ = curr_term;
 
   flatbuffers::FlatBufferBuilder fbb{1024};
@@ -774,7 +778,7 @@ void Server::sendHeartBeatResponse(std::string_view request, const SenderInfo& s
 }
 
 void Server::sendLeaderRedirect(const SenderInfo& sender_info) {
-  
+
 }
 
 int proc_numeric_id{};

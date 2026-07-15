@@ -13,75 +13,10 @@ static_assert(FLATBUFFERS_VERSION_MAJOR == 25 &&
               FLATBUFFERS_VERSION_REVISION == 19,
              "Non-compatible flatbuffers version included");
 
-struct LogEntry;
-struct LogEntryBuilder;
+#include "LogEntry_generated.h"
 
 struct AppendEntriesRPC;
 struct AppendEntriesRPCBuilder;
-
-struct LogEntry FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
-  typedef LogEntryBuilder Builder;
-  enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
-    VT_TERM = 4,
-    VT_COMMAND = 6
-  };
-  int32_t term() const {
-    return GetField<int32_t>(VT_TERM, 0);
-  }
-  const ::flatbuffers::String *command() const {
-    return GetPointer<const ::flatbuffers::String *>(VT_COMMAND);
-  }
-  template <bool B = false>
-  bool Verify(::flatbuffers::VerifierTemplate<B> &verifier) const {
-    return VerifyTableStart(verifier) &&
-           VerifyField<int32_t>(verifier, VT_TERM, 4) &&
-           VerifyOffset(verifier, VT_COMMAND) &&
-           verifier.VerifyString(command()) &&
-           verifier.EndTable();
-  }
-};
-
-struct LogEntryBuilder {
-  typedef LogEntry Table;
-  ::flatbuffers::FlatBufferBuilder &fbb_;
-  ::flatbuffers::uoffset_t start_;
-  void add_term(int32_t term) {
-    fbb_.AddElement<int32_t>(LogEntry::VT_TERM, term, 0);
-  }
-  void add_command(::flatbuffers::Offset<::flatbuffers::String> command) {
-    fbb_.AddOffset(LogEntry::VT_COMMAND, command);
-  }
-  explicit LogEntryBuilder(::flatbuffers::FlatBufferBuilder &_fbb)
-        : fbb_(_fbb) {
-    start_ = fbb_.StartTable();
-  }
-  ::flatbuffers::Offset<LogEntry> Finish() {
-    const auto end = fbb_.EndTable(start_);
-    auto o = ::flatbuffers::Offset<LogEntry>(end);
-    return o;
-  }
-};
-
-inline ::flatbuffers::Offset<LogEntry> CreateLogEntry(
-    ::flatbuffers::FlatBufferBuilder &_fbb,
-    int32_t term = 0,
-    ::flatbuffers::Offset<::flatbuffers::String> command = 0) {
-  LogEntryBuilder builder_(_fbb);
-  builder_.add_command(command);
-  builder_.add_term(term);
-  return builder_.Finish();
-}
-
-inline ::flatbuffers::Offset<LogEntry> CreateLogEntryDirect(
-    ::flatbuffers::FlatBufferBuilder &_fbb,
-    int32_t term = 0,
-    const char *command = nullptr) {
-  auto command__ = command ? _fbb.CreateString(command) : 0;
-  return CreateLogEntry(
-      _fbb,
-      term,
-      command__);
-}
 
 struct AppendEntriesRPC FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
   typedef AppendEntriesRPCBuilder Builder;
