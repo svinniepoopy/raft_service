@@ -54,6 +54,8 @@ private:
   void sendAppendEntriesResponse(std::string_view /*request*/,
                                  const SenderInfo&);
 
+  startFollowerLogConsistencyThread(const SenderInfo&);
+
   std::condition_variable_any timer_cv_;
   std::mutex timer_mutex_;
 

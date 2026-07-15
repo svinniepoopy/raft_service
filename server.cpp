@@ -201,6 +201,10 @@ void Server::start() {
   }
 }
 
+void Server::startFollowerLogConsistencyThread(const SenderInfo& sender_info) {
+
+}
+
 /* ================== FOLLOWER ============== */
 State Server::doFollowerLoop() {
   std::println("[server@{}]: --- enter doFollowerLoop. term={} ----", port_,
@@ -396,6 +400,9 @@ State Server::doLeaderLoop() {
     port_,
     praftservice_->state().current_term_);
 
+  praftservice_->state().leader_state_.next_index_.resize(numservers_);
+  praftservice_->state().leader_state_.match_index_.resize(numservers_);
+
   auto start = std::chrono::steady_clock::now();
   std::chrono::duration<double> total{}; 
 
@@ -438,18 +445,23 @@ State Server::doLeaderLoop() {
 
       if (!commandq_.empty() && commandq_.front().num_replicated <= required_votes) { 
         if (praftservice_->hasAppendEntriesReply(buf)) {
-          ++commandq_.front().num_replicated;
-          if (commandq_.front().num_replicated >= required_votes) {
-            
-            // respond to client
-            commandq_.pop_front();
-            // command safely replicated on majority. update the commit index.
-            praftservice_->state().commit_index_ = praftservice_->state().commit_log_.size();
-          }
+          auto resp = praftservice_->hasAppendEntriesReply(buf);
+          if (resp) {
+            if (resp->first) {
+              ++commandq_.front().num_replicated;
+              if (commandq_.front().num_replicated >= required_votes) {
+                // respond to client
+                commandq_.pop_front();
+                // command safely replicated on majority. update the commit
+                // index.
+                praftservice_->state().commit_index_ =
+                    praftservice_->state().commit_log_.size();
+              }
+            } else {
+              startFollowerLogConsistencyThread(recv_data.si);
+            }
+          } 
         }
-      } else if (praftservice_->hasAppendEntriesReply(buf) && praftservice_->entryReplicated(buf)) {
-        std::lock_guard lck{leader_loop_mutex_};
-        ++num_appendentries_resp;
       } else if (praftservice_->hasHigherTerm(buf).first) {
         std::println("[server@{}]: RequestVotes complete. found higher term. "
                      "curr_term={}",
@@ -462,9 +474,7 @@ State Server::doLeaderLoop() {
         std::println("[server@{}]: entry safely replicated", port_);
         timer_cv_.notify_one();
         break;
-      }
-      if (praftservice_->hasHeartBeatInResponse(buf)) {
-
+      } else if (praftservice_->hasHeartBeatInResponse(buf)) {
         std::println("[server@{}]: Leader got heartBeatResponse. "
                      "curr_term={}",
                      port_, praftservice_->state().current_term_);
@@ -613,9 +623,9 @@ bool Server::sendRequestVoteResponse(std::string_view request, const SenderInfo&
 void Server::sendAppendEntries(const Message& message, size_t server_idx) {
   // add the command locally in the commit log
   praftservice_->state().commit_log_.push_back(Entry{praftservice_->state().current_term_, message.msg});
+  // update next index
+  praftservice_->state().leader_state_.next_index_[server_idx] = praftservice_->state().commit_log_.size()+1;
   
-  // update commitIndex
-
   int term = praftservice_->state().current_term_;
   int leader_id = praftservice_->state().id_;
 
@@ -778,7 +788,21 @@ void Server::sendHeartBeatResponse(std::string_view request, const SenderInfo& s
 }
 
 void Server::sendLeaderRedirect(const SenderInfo& sender_info) {
+  std::println("[server@{}]: redirect to leader_id={}", port_, praftservice_->state().leader_id_);
 
+  flatbuffers::FlatBufferBuilder fbb{1024};
+  auto o = CreateCommandResponse(fbb, false, servers_[praftservice_->state().leader_id_]);
+  fbb.Finish(o);
+
+  uint8_t* reply_buf = fbb.GetBufferPointer();
+  int size{fbb.GetSize()};
+
+  int ret = ::sendto(sockfd_, reply_buf, size, 0,
+    (struct sockaddr*)&sender_info.peer_addr, sender_info.peer_addrlen);
+  if (ret != size) {
+    perror("sendto");
+    std::cerr << "error sending requestvote response\n";
+  }
 }
 
 int proc_numeric_id{};

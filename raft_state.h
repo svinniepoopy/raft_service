@@ -1,11 +1,12 @@
 #ifndef RAFT_STATE_H 
 #define RAFT_STATE_H 
 
+#include <optional>
 #include <string>
 #include <vector>
 
 #include <cstdint>
-#include <optional>
+
 
 using CandidateId = int;
 
@@ -14,6 +15,12 @@ enum class State : uint8_t { Follower, Candidate, Leader };
 struct Entry {
   int term;
   std::string command;
+};
+
+struct LeaderState {
+  // 
+  std::vector<int> next_index_;
+  std::vector<int> match_index_;
 };
 
 struct RaftState {
@@ -27,10 +34,15 @@ struct RaftState {
   State state_{State::Follower};
 
   // index of highest log entry known to be committed
+  // initialized to zero. 1-indexed.
   int commit_index_{};
 
   // index of highest log entry applied to state mahchine
+  // initialized to zero. 1-indexed.
   int last_applied_{};
+
+  // volatile state on leaders
+  LeaderState leader_state_;
 
   /* === persistent state ===
    * updated on stable storage before responding to RPCs
@@ -43,12 +55,6 @@ struct RaftState {
   std::vector<Entry> commit_log_;
 
   /* end persistent state */
-};
-
-// volatile state on leaders
-struct LeaderState {
-  std::vector<int> next_index;
-  std::vector<int> match_index;
 };
 
 

@@ -7,6 +7,7 @@
 #include "generated/RequestVote_generated.h"
 #include "generated/RequestVoteReply_generated.h"
 
+#include <optional>
 #include <string_view>
 #include <utility>
 
@@ -75,8 +76,14 @@ bool RaftService::hasAppendEntriesRequest(std::string_view buf) {
   return reply != nullptr;
 }
 
-bool RaftService::hasAppendEntriesReply(std::string_view buf) {
+std::optional<std::pair<bool, int>> RaftService::hasAppendEntriesReply(std::string_view buf) {
   const void* pbuf = static_cast<const void*>(buf.data());
   const AppendEntriesRPCReply* reply = GetAppendEntriesRPCReply(pbuf);
-  return reply != nullptr;
+  if (reply) {
+    if (reply->success()) {
+      return {true, reply->term()};
+    }
+    return {false, reply->term()};
+  }
+  return {}; 
 }
