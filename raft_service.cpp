@@ -9,6 +9,7 @@
 
 #include <optional>
 #include <string_view>
+#include <tuple>
 #include <utility>
 
 std::pair<bool, int> RaftService::hasHigherTerm(std::string_view buf) {
@@ -88,15 +89,14 @@ bool RaftService::hasAppendEntriesRequest(std::string_view buf) {
   return entries->size() > 0;
 }
 
-std::optional<std::pair<bool, int>> RaftService::hasAppendEntriesReply(std::string_view buf) {
+std::optional<std::tuple<bool, int, int>> RaftService::hasAppendEntriesReply(std::string_view buf) {
   const void* pbuf = static_cast<const void*>(buf.data());
   const AppendEntriesRPCReply* reply = GetAppendEntriesRPCReply(pbuf);
   if (reply) {
     if (reply->success()) {
-      return std::optional{std::make_pair(true, reply->term())};
+      return std::optional{std::make_tuple(true, reply->id(), reply->term())};
     }
-    return std::optional{std::make_pair(false, reply->term())};
-
+    return std::optional{std::make_tuple(false, reply->id(), reply->term())};
   }
   return {}; 
 }

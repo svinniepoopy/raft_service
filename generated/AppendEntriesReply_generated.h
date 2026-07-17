@@ -20,7 +20,8 @@ struct AppendEntriesRPCReply FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Ta
   typedef AppendEntriesRPCReplyBuilder Builder;
   enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
     VT_TERM = 4,
-    VT_SUCCESS = 6
+    VT_SUCCESS = 6,
+    VT_ID = 8
   };
   int32_t term() const {
     return GetField<int32_t>(VT_TERM, 0);
@@ -28,11 +29,15 @@ struct AppendEntriesRPCReply FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Ta
   bool success() const {
     return GetField<uint8_t>(VT_SUCCESS, 0) != 0;
   }
+  int32_t id() const {
+    return GetField<int32_t>(VT_ID, 0);
+  }
   template <bool B = false>
   bool Verify(::flatbuffers::VerifierTemplate<B> &verifier) const {
     return VerifyTableStart(verifier) &&
            VerifyField<int32_t>(verifier, VT_TERM, 4) &&
            VerifyField<uint8_t>(verifier, VT_SUCCESS, 1) &&
+           VerifyField<int32_t>(verifier, VT_ID, 4) &&
            verifier.EndTable();
   }
 };
@@ -46,6 +51,9 @@ struct AppendEntriesRPCReplyBuilder {
   }
   void add_success(bool success) {
     fbb_.AddElement<uint8_t>(AppendEntriesRPCReply::VT_SUCCESS, static_cast<uint8_t>(success), 0);
+  }
+  void add_id(int32_t id) {
+    fbb_.AddElement<int32_t>(AppendEntriesRPCReply::VT_ID, id, 0);
   }
   explicit AppendEntriesRPCReplyBuilder(::flatbuffers::FlatBufferBuilder &_fbb)
         : fbb_(_fbb) {
@@ -61,8 +69,10 @@ struct AppendEntriesRPCReplyBuilder {
 inline ::flatbuffers::Offset<AppendEntriesRPCReply> CreateAppendEntriesRPCReply(
     ::flatbuffers::FlatBufferBuilder &_fbb,
     int32_t term = 0,
-    bool success = false) {
+    bool success = false,
+    int32_t id = 0) {
   AppendEntriesRPCReplyBuilder builder_(_fbb);
+  builder_.add_id(id);
   builder_.add_term(term);
   builder_.add_success(success);
   return builder_.Finish();

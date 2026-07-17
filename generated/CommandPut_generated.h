@@ -24,7 +24,7 @@ struct CommandPut FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
     VT_VALUE = 8
   };
   int32_t version() const {
-    return GetField<int32_t>(VT_VERSION, 0);
+    return GetField<int32_t>(VT_VERSION, 99);
   }
   const ::flatbuffers::String *key() const {
     return GetPointer<const ::flatbuffers::String *>(VT_KEY);
@@ -49,7 +49,7 @@ struct CommandPutBuilder {
   ::flatbuffers::FlatBufferBuilder &fbb_;
   ::flatbuffers::uoffset_t start_;
   void add_version(int32_t version) {
-    fbb_.AddElement<int32_t>(CommandPut::VT_VERSION, version, 0);
+    fbb_.AddElement<int32_t>(CommandPut::VT_VERSION, version, 99);
   }
   void add_key(::flatbuffers::Offset<::flatbuffers::String> key) {
     fbb_.AddOffset(CommandPut::VT_KEY, key);
@@ -70,7 +70,7 @@ struct CommandPutBuilder {
 
 inline ::flatbuffers::Offset<CommandPut> CreateCommandPut(
     ::flatbuffers::FlatBufferBuilder &_fbb,
-    int32_t version = 0,
+    int32_t version = 99,
     ::flatbuffers::Offset<::flatbuffers::String> key = 0,
     ::flatbuffers::Offset<::flatbuffers::String> value = 0) {
   CommandPutBuilder builder_(_fbb);
@@ -82,7 +82,7 @@ inline ::flatbuffers::Offset<CommandPut> CreateCommandPut(
 
 inline ::flatbuffers::Offset<CommandPut> CreateCommandPutDirect(
     ::flatbuffers::FlatBufferBuilder &_fbb,
-    int32_t version = 0,
+    int32_t version = 99,
     const char *key = nullptr,
     const char *value = nullptr) {
   auto key__ = key ? _fbb.CreateString(key) : 0;

@@ -22,8 +22,12 @@ struct Message {
 };
 
 struct CommandMessage : Message {
-  bool append_entries_sent{false};
-  size_t num_replicated{};
+  CommandMessage(const Message& base, int numservers)
+  : Message{base} {
+      processed_entries.resize(numservers, false);
+    }
+  size_t num_replicated{1};
+  std::vector<bool> processed_entries;
 };
 
 class Server {

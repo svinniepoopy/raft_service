@@ -1,5 +1,5 @@
 table CommandPut {
-    version:int;
+    version:int = 99;
     key:string;
     value:string;
 }

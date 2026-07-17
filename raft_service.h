@@ -6,6 +6,7 @@
 #include <optional>
 #include <string_view>
 #include <utility>
+#include <tuple>
 
 class RaftService {
 public:
@@ -24,7 +25,7 @@ public:
 
   // append entries
   bool hasAppendEntriesRequest(std::string_view);
-  std::optional<std::pair<bool, int>> hasAppendEntriesReply(std::string_view);
+  std::optional<std::tuple<bool, int, int>> hasAppendEntriesReply(std::string_view);
   bool entryReplicated(std::string_view);
 
   const RaftState &state() const { return raftstate_; }

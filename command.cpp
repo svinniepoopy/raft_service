@@ -12,7 +12,6 @@ bool Command::hasPut(std::string_view buf) {
   if (buf.empty()) {
     return false;
   }
-
   /*
   const uint8_t* buffer = static_cast<const uint8_t*>(vbuf);
   int size = buf.size();
@@ -23,7 +22,11 @@ bool Command::hasPut(std::string_view buf) {
   }
   */
   const CommandPut* pcmd = GetCommandPut(static_cast<const void *>(buf.data()));
-  return pcmd != nullptr && pcmd->version() >= 1 && pcmd->key() && pcmd->value();
+  if (pcmd != nullptr && pcmd->version() == 99) {
+    std::cerr << "hasPut version 1" << std::endl;
+    return true;
+  }
+  return false;
 }
 
 bool Command::hasPutResponse(std::string_view buf) {

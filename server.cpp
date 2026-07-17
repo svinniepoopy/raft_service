@@ -502,7 +502,6 @@ State Server::doLeaderLoop() {
 
   const size_t required_votes = (numservers_ - 1) / 2 + 1;
   size_t num_responses{0};
-  size_t num_appendentries_resp{};
 
   std::deque<CommandMessage> command_q;
 
@@ -517,30 +516,36 @@ State Server::doLeaderLoop() {
 
       auto recv_data = message_q.front();
       message_q.pop_front();
-      lck.unlock();
 
       if (pcommand_->hasPut(recv_data.msg.data())) {
         std::println("[server@{}]: doLeaderLoop. hasPut", port_);
-        command_q.push_back({recv_data, false, 0});
+        // add the command locally in the commit log
+        praftservice_->state().commit_log_.push_back(
+            Entry{praftservice_->state().current_term_, recv_data.msg});
+        command_q.push_back({recv_data, numservers_}); 
       }
-
+      lck.unlock();
+      
       std::string_view buf{recv_data.msg};
 
-      if (!command_q.empty() && !command_q.front().append_entries_sent) {
+      if (!command_q.empty() && command_q.front().num_replicated < required_votes) { 
         for (int i{}; i < numservers_; ++i) {
           if (i == praftservice_->state().id_) {
             continue;
           }
-          sendAppendEntries({command_q.front().msg, command_q.front().si}, i);
+          if (!command_q.front().processed_entries[i]) {
+              sendAppendEntries(command_q.front(), i);
+          }
         }
-        command_q.front().append_entries_sent = true;
       }
 
       if (!command_q.empty() && command_q.front().num_replicated <= required_votes) { 
         if (praftservice_->hasAppendEntriesReply(buf)) {
           auto resp = praftservice_->hasAppendEntriesReply(buf);
           if (resp) {
-            if (resp->first) {
+            if (std::get<0>(*resp)) {
+              int id = std::get<1>(*resp);
+              command_q.front().processed_entries[id] = true;
               ++command_q.front().num_replicated;
               if (command_q.front().num_replicated >= required_votes) {
                 // respond to client
@@ -549,10 +554,11 @@ State Server::doLeaderLoop() {
                 // index.
                 praftservice_->state().commit_index_ =
                     praftservice_->state().commit_log_.size()-1;
+                std::println("[server@{}]: entry safely replicated. commit log size={}", 
+                  port_,
+                  praftservice_->state().commit_log_.size());
               }
-            } else {
-              startFollowerLogConsistencyThread(recv_data.si);
-            }
+            } 
           } 
         }
       } else if (praftservice_->hasHigherTerm(buf).first) {
@@ -564,7 +570,6 @@ State Server::doLeaderLoop() {
           praftservice_->state().state_ = State::Follower;
           praftservice_->state().current_term_ = praftservice_->hasHigherTerm(buf).second;
         }
-        std::println("[server@{}]: entry safely replicated", port_);
         timer_cv_.notify_one();
         break;
       } else if (praftservice_->hasHeartBeatInResponse(buf)) {
@@ -584,9 +589,6 @@ State Server::doLeaderLoop() {
                      "term={} Leader since {} diff={}----",
                      port_, praftservice_->state().current_term_, total, diff);
       }
-      if (num_appendentries_resp >= required_votes) {
-        std::println("[server@{}]: entry safely replicated", port_);
-      }
     }
   }};
 
@@ -594,31 +596,34 @@ State Server::doLeaderLoop() {
   int num_attempts{0};
 
   while (true) { 
-    for (int i{}; i < numservers_; ++i) {
+    for (int i{}; command_q.empty() && i < numservers_; ++i) {
       if (i == praftservice_->state().id_) {
         continue;
       }
       sendHeartBeat(i);
     }
 
-    std::chrono::milliseconds timeout_duration{GetRandomDuration()};
-    std::unique_lock lck{leader_loop_mutex_};
-    has_heartbeats = timer_cv_.wait_for(lck, timeout_duration, [&]() {
-      return num_responses >= required_votes;
-    });
+    if (command_q.empty()) {
+      std::chrono::milliseconds timeout_duration{GetRandomDuration()};
+      std::unique_lock lck{leader_loop_mutex_};
+      has_heartbeats = timer_cv_.wait_for(lck, timeout_duration, [&]() {
+        return num_responses >= required_votes;
+      });
+      message_q.clear();
+      lck.unlock();
 
-    lck.unlock();
-    if (!has_heartbeats) {
-      ++num_attempts;
-      if (num_attempts >= 3) {
-        std::println("[server@{}]: ---- Leader: !!LOST QUORUM!!. Change to "
-                     "Follower term={} ----",
-                     port_, praftservice_->state().current_term_);
-        break;
+      if (!has_heartbeats) {
+        ++num_attempts;
+        if (num_attempts >= 3) {
+          std::println("[server@{}]: ---- Leader: !!LOST QUORUM!!. Change to "
+                       "Follower term={} ----",
+                       port_, praftservice_->state().current_term_);
+          break;
+        }
+      } else {
+        num_responses = 0;
+        num_attempts = 0;
       }
-    } else {
-      num_responses = 0;
-      num_attempts = 0;
     }
   }
   std::println("[server@{}]: Leader state for={}", port_, total); 
@@ -723,11 +728,11 @@ void Server::sendAppendEntries(const CommandMessage& message, size_t server_idx)
   std::println("[server@{}]: sendAppendEntries term={}",
     port_,
     praftservice_->state().current_term_);
-  // add the command locally in the commit log
-  praftservice_->state().commit_log_.push_back(Entry{praftservice_->state().current_term_, message.msg});
+
   // update next index
-  praftservice_->state().leader_state_.next_index_[server_idx] = praftservice_->state().commit_log_.size();
-  
+  praftservice_->state().leader_state_.next_index_[server_idx] =
+      praftservice_->state().commit_log_.size();
+
   int term = praftservice_->state().current_term_;
   int leader_id = praftservice_->state().id_;
 
@@ -800,14 +805,18 @@ void Server::sendAppendEntriesResponse(std::string_view request, const SenderInf
   const int leader_commit = preq->leader_commit();
   const int leader_id = preq->leader_id();
 
-  std::println("[server@{}]: sendAppendEntriesResponse to={}. term={}",
+  std::println("[server@{}]: sendAppendEntriesResponse input "
+    "term = {}, prev_log_index={}, prev_log_term={} cmd={}", 
     port_,
-    leader_id,
-    praftservice_->state().current_term_);
+    term,
+    prev_log_index,
+    prev_log_term,
+    cmd);
 
   bool success{true};
   // cover all the false cases
   if (praftservice_->state().current_term_ < term) {
+    std::println("[server@{}]: sendAppendEntriesResponse current_term_ < term", port_); 
     success = false;
   }
   
@@ -815,6 +824,7 @@ void Server::sendAppendEntriesResponse(std::string_view request, const SenderInf
 
   if (prev_log_index >= log.size() ||
       log[prev_log_index].term != prev_log_term) {
+    std::println("[server@{}]: sendAppendEntriesResponse mismatch log", port_);
     success = false;
   }
 
@@ -833,9 +843,12 @@ void Server::sendAppendEntriesResponse(std::string_view request, const SenderInf
   }
 
   flatbuffers::FlatBufferBuilder fbb{1024};
-  auto o = CreateAppendEntriesRPCReply(fbb, praftservice_->state().current_term_, success);
+  auto o = CreateAppendEntriesRPCReply(fbb,
+                                       praftservice_->state().current_term_,
+                                       success,
+                                       praftservice_->state().id_);
   fbb.Finish(o);
-  
+
   uint8_t* reply_buf = fbb.GetBufferPointer();
   int size = fbb.GetSize();
   
@@ -898,7 +911,7 @@ void Server::sendHeartBeatResponse(std::string_view request, const SenderInfo& s
   }
 
   praftservice_->state().leader_id_ = preq->leader_id();
-  praftservice_->state().current_term_ = curr_term;
+  praftservice_->state().current_term_ = preq->term(); 
 
   std::println("[server@{}]: sendHeartBeatReply to={} term={}",
     port_,
@@ -906,7 +919,7 @@ void Server::sendHeartBeatResponse(std::string_view request, const SenderInfo& s
     praftservice_->state().current_term_);
  
   flatbuffers::FlatBufferBuilder fbb{1024};
-  auto o = CreateAppendEntriesRPCReply(fbb, curr_term, success);
+  auto o = CreateAppendEntriesRPCReply(fbb, curr_term, success); // TODO
   fbb.Finish(o);
   
   uint8_t* reply_buf = fbb.GetBufferPointer();

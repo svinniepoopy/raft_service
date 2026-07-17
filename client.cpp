@@ -7,6 +7,7 @@
 #include <string>
 #include <string_view>
 
+#include <cstdint>
 #include <cstring>
 #include <cstdlib>
 
@@ -32,7 +33,7 @@ int main(int argc, char* argv[]) {
   auto fb_key = builder.CreateString(key.c_str());
   auto fb_val = builder.CreateString(val.c_str());
 
-  auto off = CreateCommandPut(builder, 1, fb_key, fb_val);
+  auto off = CreateCommandPut(builder, 99, fb_key, fb_val);
   builder.Finish(off);
 
   uint8_t* buf = builder.GetBufferPointer();
@@ -76,33 +77,22 @@ int main(int argc, char* argv[]) {
     fprintf(stderr, "error sending command\n");
   }
 
+  /*
   socklen_t their_addr_len = sizeof(their_addr);
-  int n;
   char recvbuf[BUFSIZE];
-  while (true) {
-    n = ::recvfrom(
-      sockfd, recvbuf, BUFSIZE, 0, 
-      (struct sockaddr *)&their_addr, &their_addr_len);
 
-    if (n > 0) {
-      std::cout << "client got response " << recvbuf << std::endl;
-    }
+  int n = ::recvfrom(sockfd, recvbuf, BUFSIZE, 0, (struct sockaddr *)&their_addr,
+                 &their_addr_len);
 
+  if (n > 0) {
     std::string_view vbuf{recvbuf, n};
-    const CommandResponse* pcmd = 
+    const CommandResponse *pcmd =
         GetCommandResponse(static_cast<const void *>(vbuf.data()));
-    
     if (pcmd && pcmd->success()) {
       std::cerr << "ok\n";
-    } else {
-      if (sendto(sockfd, buf, size, 0, (struct sockaddr *)&their_addr,
-                 sizeof(their_addr)) != size) {
-        perror("sendto");
-        fprintf(stderr, "error sending command\n");
-      }
     }
   }
-
+  */  
   freeaddrinfo(res);
 
   return 0;
