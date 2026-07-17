@@ -24,9 +24,6 @@ struct LeaderState {
 };
 
 struct RaftState {
-
-  bool voted_in_current_term_{false};
-
   int id_;
 
   int leader_id_;

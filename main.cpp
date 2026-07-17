@@ -49,7 +49,7 @@ int main(int argc, char** argv) {
 
     if (argc != 3) {
         std::cerr << "Usage:\n";
-        std::cerr << "raft-runner <num-servers> <config-file-name>";
+        std::cerr << "raft-runner <num-servers> <config-file-name>\n";
         return 1;    
     }
 

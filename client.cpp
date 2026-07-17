@@ -1,8 +1,11 @@
 #include "generated/CommandPut_generated.h"
 #include "generated/CommandResponse_generated.h"
 
+#include "command.h"
+
 #include <iostream>
 #include <string>
+#include <string_view>
 
 #include <cstring>
 #include <cstdlib>
@@ -13,7 +16,14 @@
 #include <unistd.h>
 #include <fcntl.h>
 
+size_t BUFSIZE = 1024;
+
 int main(int argc, char* argv[]) {
+  const char usage[] = "Usage: client <port> <key> <value>\n";
+  if (argc != 4) {
+    std::cerr << usage;
+    return 1;
+  }
 
   flatbuffers::FlatBufferBuilder builder;
 
@@ -22,7 +32,7 @@ int main(int argc, char* argv[]) {
   auto fb_key = builder.CreateString(key.c_str());
   auto fb_val = builder.CreateString(val.c_str());
 
-  auto off = CreateCommandPut(builder, fb_key, fb_val);
+  auto off = CreateCommandPut(builder, 1, fb_key, fb_val);
   builder.Finish(off);
 
   uint8_t* buf = builder.GetBufferPointer();
@@ -55,22 +65,45 @@ int main(int argc, char* argv[]) {
     std::exit(EXIT_FAILURE);
   }
 
-  if (connect(sockfd, res->ai_addr, res->ai_addrlen) == -1) {
-    perror("connect");
-    std::cerr << "exit connect\n";
-    std::exit(EXIT_FAILURE);   
-  }
-
   struct sockaddr_in their_addr; // connector's address info
   memset(&their_addr, 0, sizeof(their_addr));
   their_addr.sin_family = AF_INET;     // host byte order
   their_addr.sin_port = htons(std::stoi(argv[1])); // network byte order
   their_addr.sin_addr.s_addr = htonl(INADDR_ANY); 
   
-  if (sendto(sockfd_, buf, size, 0, (struct sockaddr*)&their_addr, sizeof(their_addr)) != size) {
+  if (sendto(sockfd, buf, size, 0, (struct sockaddr*)&their_addr, sizeof(their_addr)) != size) {
     perror("sendto");
-    fprintf(stderr, "error sending REQUEST VOTE");
+    fprintf(stderr, "error sending command\n");
   }
 
-  freeaddrinfo(res); 
+  socklen_t their_addr_len = sizeof(their_addr);
+  int n;
+  char recvbuf[BUFSIZE];
+  while (true) {
+    n = ::recvfrom(
+      sockfd, recvbuf, BUFSIZE, 0, 
+      (struct sockaddr *)&their_addr, &their_addr_len);
+
+    if (n > 0) {
+      std::cout << "client got response " << recvbuf << std::endl;
+    }
+
+    std::string_view vbuf{recvbuf, n};
+    const CommandResponse* pcmd = 
+        GetCommandResponse(static_cast<const void *>(vbuf.data()));
+    
+    if (pcmd && pcmd->success()) {
+      std::cerr << "ok\n";
+    } else {
+      if (sendto(sockfd, buf, size, 0, (struct sockaddr *)&their_addr,
+                 sizeof(their_addr)) != size) {
+        perror("sendto");
+        fprintf(stderr, "error sending command\n");
+      }
+    }
+  }
+
+  freeaddrinfo(res);
+
+  return 0;
 }

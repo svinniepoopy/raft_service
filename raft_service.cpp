@@ -14,19 +14,19 @@
 std::pair<bool, int> RaftService::hasHigherTerm(std::string_view buf) {
   const void* pbuf = static_cast<const void*>(buf.data());
   if (const RequestVoteRPC *rpc = GetRequestVoteRPC(pbuf);
-      rpc && rpc->term() >= raftstate_.current_term_) {
+      rpc && rpc->term() > raftstate_.current_term_) {
     return {true, rpc->term()};
   }
   if (const RequestVoteRPCReply *rpc = GetRequestVoteRPCReply(pbuf);
-      rpc && rpc->term() >= raftstate_.current_term_) {
+      rpc && rpc->term() > raftstate_.current_term_) {
     return {true, rpc->term()};
   }
   if (const AppendEntriesRPC* rpc = GetAppendEntriesRPC(pbuf);
-      rpc && rpc->term() >= raftstate_.current_term_) {
+      rpc && rpc->term() > raftstate_.current_term_) {
     return {true, rpc->term()};
   }
   if (const AppendEntriesRPCReply* rpc = GetAppendEntriesRPCReply(pbuf);
-      rpc && rpc->term() >= raftstate_.current_term_) {
+      rpc && rpc->term() > raftstate_.current_term_) {
     return {true, rpc->term()};
   }
   return {false, raftstate_.current_term_};
@@ -47,11 +47,7 @@ bool RaftService::hasRequestVoteReply(std::string_view buf) {
 bool RaftService::hasHeartBeatInRequest(std::string_view buf) {
   const void* pbuf = static_cast<const void*>(buf.data());
   const AppendEntriesRPC* rpc = GetAppendEntriesRPC(pbuf);
-  if (!rpc) {
-    return false; 
-  } 
-  auto entries = rpc->entries();
-  return entries != nullptr && entries->empty();
+  return rpc != nullptr;
 }
 
 bool RaftService::hasHeartBeatInResponse(std::string_view buf) {
@@ -64,8 +60,17 @@ bool RaftService::hasHeartBeatInResponse(std::string_view buf) {
 }
 
 bool RaftService::hasVoteInRequestVoteResponse(std::string_view buf) {
-  const void* pbuf = static_cast<const void*>(buf.data());
-  const RequestVoteRPCReply* reply = GetRequestVoteRPCReply(pbuf);
+
+  const void* vbuf = static_cast<const void*>(buf.data());
+  const uint8_t* buffer = static_cast<const uint8_t*>(vbuf);
+  int size = buf.size();
+  flatbuffers::Verifier verifier(buffer, size); 
+ 
+  if (!VerifyRequestVoteRPCReplyBuffer<>(verifier)) {
+    return false;
+  }
+
+  const RequestVoteRPCReply* reply = GetRequestVoteRPCReply(vbuf);
   return reply ? reply->vote_granted() : false;
 }
 
@@ -73,7 +78,14 @@ bool RaftService::hasVoteInRequestVoteResponse(std::string_view buf) {
 bool RaftService::hasAppendEntriesRequest(std::string_view buf) {
   const void* pbuf = static_cast<const void*>(buf.data());
   const AppendEntriesRPC* reply = GetAppendEntriesRPC(pbuf);
-  return reply != nullptr;
+  if (reply == nullptr) {
+    return false;
+  }
+  const auto entries = reply->entries();
+  if (!entries) {
+    return false;
+  }
+  return entries->size() > 0;
 }
 
 std::optional<std::pair<bool, int>> RaftService::hasAppendEntriesReply(std::string_view buf) {
@@ -81,9 +93,10 @@ std::optional<std::pair<bool, int>> RaftService::hasAppendEntriesReply(std::stri
   const AppendEntriesRPCReply* reply = GetAppendEntriesRPCReply(pbuf);
   if (reply) {
     if (reply->success()) {
-      return {true, reply->term()};
+      return std::optional{std::make_pair(true, reply->term())};
     }
-    return {false, reply->term()};
+    return std::optional{std::make_pair(false, reply->term())};
+
   }
   return {}; 
 }
