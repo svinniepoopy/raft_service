@@ -92,11 +92,11 @@ bool RaftService::hasAppendEntriesRequest(std::string_view buf) {
 std::optional<std::tuple<bool, int, int>> RaftService::hasAppendEntriesReply(std::string_view buf) {
   const void* pbuf = static_cast<const void*>(buf.data());
   const AppendEntriesRPCReply* reply = GetAppendEntriesRPCReply(pbuf);
-  if (reply) {
-    if (reply->success()) {
-      return std::optional{std::make_tuple(true, reply->id(), reply->term())};
-    }
-    return std::optional{std::make_tuple(false, reply->id(), reply->term())};
+  if (!reply) {
+    return {};
   }
-  return {}; 
+  if (reply && reply->version() != 103) {
+    return {};
+  }
+  return std::optional{std::make_tuple(reply->success(), reply->id(), reply->term())};
 }

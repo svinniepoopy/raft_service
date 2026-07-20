@@ -62,17 +62,6 @@ private:
   std::condition_variable_any timer_cv_;
   std::mutex timer_mutex_;
 
-  std::condition_variable follower_loop_cv_;
-  std::mutex follower_mutex_;
-
-  // used in the candidate loop
-  std::condition_variable candidate_loop_cv_;
-  std::mutex candidate_loop_mutex_;
-
-  // used in the leader loop
-  std::condition_variable leader_loop_cv_;
-  std::mutex leader_loop_mutex_;
-
   int port_;
   int sockfd_;
 

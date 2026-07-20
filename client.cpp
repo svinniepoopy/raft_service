@@ -33,7 +33,7 @@ int main(int argc, char* argv[]) {
   auto fb_key = builder.CreateString(key.c_str());
   auto fb_val = builder.CreateString(val.c_str());
 
-  auto off = CreateCommandPut(builder, 99, fb_key, fb_val);
+  auto off = CreateCommandPut(builder, fb_key, fb_val, 99);
   builder.Finish(off);
 
   uint8_t* buf = builder.GetBufferPointer();

@@ -1,5 +1,5 @@
 CXX = g++
-CXXFLAGS = -ggdb -std=c++26 -Wall -Wextra -Wunreachable-code
+CXXFLAGS = -ggdb -std=c++26 -Wall -Wextra -Wunreachable-code -fsanitize=address
 INCLUDES = -I./flatbuffers/include 
 
 raft-runner : main.cpp
@@ -21,4 +21,4 @@ server : server.cpp raft_service.o command.o server.h raft_state.h server_info.h
 client : client.cpp
 			$(CXX) $(CXXFLAGS) $(INCLUDES) client.cpp command.o -o client
 clean :
-	rm -rf raft-runner *.o
+	rm -rf raft-runner server client *.o 

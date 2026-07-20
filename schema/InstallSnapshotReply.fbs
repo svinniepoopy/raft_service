@@ -1,0 +1,6 @@
+table InstallSnapshotReply {
+    term:int;
+    version:int;
+}
+
+root_type InstallSnapshotReply;

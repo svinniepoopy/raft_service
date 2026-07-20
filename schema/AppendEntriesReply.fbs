@@ -2,6 +2,7 @@ table AppendEntriesRPCReply {
     term:int;
     success:bool;
     id:int;
+    version:int;
 }
 
 root_type AppendEntriesRPCReply;
