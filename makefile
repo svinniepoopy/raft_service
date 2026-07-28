@@ -1,5 +1,5 @@
 CXX = g++
-CXXFLAGS = -ggdb -std=c++26 -Wall -Wextra -Wunreachable-code -fsanitize=thread
+CXXFLAGS = -ggdb -std=c++26 -Wall -Wextra -Wunreachable-code -fsanitize=address
 INCLUDES = -I./flatbuffers/include 
 
 raft-runner : main.cpp

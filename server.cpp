@@ -819,6 +819,7 @@ void Server::sendAppendEntriesResponse(std::string_view request,
                port_, term, prev_log_index, prev_log_term, cmd);
 
   bool success{true};
+<<<<<<< HEAD
   // cover all the false cases
   if (praftservice_->state().current_term_ < term) {
     std::println("[server@{}]: sendAppendEntriesResponse current_term_ < term",
@@ -827,27 +828,45 @@ void Server::sendAppendEntriesResponse(std::string_view request,
   }
 
   auto &log = praftservice_->state().commit_log_;
+=======
+  // 1. Reply false if term < currentTerm (§5.1)
+  if (term < praftservice_->state().current_term_) {
+    std::println("[server@{}]: sendAppendEntriesResponse term < current_term_", port_); 
+    success = false;
+  } 
+  auto& log = praftservice_->state().commit_log_;
+>>>>>>> d1f717c (appendEntriesReply)
 
-  if (prev_log_index >= log.size() ||
+  // 2. Reply false if log doesn’t contain an entry at prevLogIndex
+  // whose term matches prevLogTerm (§5.3)
+  if (log.size() > prev_log_index &&
       log[prev_log_index].term != prev_log_term) {
     std::println("[server@{}]: sendAppendEntriesResponse mismatch log", port_);
     success = false;
   }
 
   if (success) {
-    if ((log.size() > prev_log_index + 1) &&
-        log[prev_log_index + 1].term != term) {
-      log.erase(log.begin() + prev_log_index + 1, log.end());
+    const int current_index = prev_log_index + 1;
+    // 3. If an existing entry conflicts with a new one (same index
+    // but different terms), delete the existing entry and all that
+    // follow it (§5.3)
+    if ((log.size() > current_index) && log[current_index].term != term) {
+      log.erase(log.begin() + current_index, log.end());
       log.push_back({cmd_term, cmd});
-      praftservice_->state().leader_id_ = preq->leader_id();
-      if (leader_commit > praftservice_->state().commit_index_) {
-        praftservice_->state().commit_index_ =
-            std::min(leader_commit, static_cast<int>(log.size() - 1));
-      }
     } else {
       log.push_back({cmd_term, cmd});
+<<<<<<< HEAD
+=======
     }
-    praftservice_->state().current_term_ = term;
+
+    if (leader_commit > praftservice_->state().commit_index_) {
+      praftservice_->state().commit_index_ =
+          std::min(leader_commit, static_cast<int>(log.size() - 1));
+
+      praftservice_->state().leader_id_ = preq->leader_id();
+      praftservice_->state().current_term_ = term;
+>>>>>>> d1f717c (appendEntriesReply)
+    }
   }
 
   flatbuffers::FlatBufferBuilder fbb{1024};
@@ -987,5 +1006,10 @@ int main(int argc, char **argv) {
 
   std::string serverinfo{argv[3]};
 
+<<<<<<< HEAD
+=======
+  // TODO: read from the log
+
+>>>>>>> d1f717c (appendEntriesReply)
   Server s{num_servers, idx, serverinfo};
 }
