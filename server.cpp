@@ -7,46 +7,43 @@
 
 #include "generated/AppendEntriesReply_generated.h"
 #include "generated/AppendEntries_generated.h"
-#include "generated/RequestVoteReply_generated.h"
-#include "generated/RequestVote_generated.h"
 #include "generated/CommandPut_generated.h"
 #include "generated/CommandResponse_generated.h"
+#include "generated/RequestVoteReply_generated.h"
+#include "generated/RequestVote_generated.h"
 
 #include <cerrno>
 #include <csignal>
 #include <cstddef>
-#include <cstring>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 
+#include <chrono>
+#include <condition_variable>
 #include <ctime>
 #include <deque>
 #include <iostream>
-#include <chrono>
-#include <future>
 #include <memory>
-#include <netinet/in.h>
+#include <mutex>
+#include <print>
+#include <queue>
 #include <random>
 #include <sstream>
+#include <stop_token>
 #include <string>
 #include <string_view>
 #include <thread>
-#include <condition_variable>
-#include <mutex>
-#include <sstream>
-#include <print>
-#include <stop_token>
-#include <queue>
-#include <syncstream>
 
-#include <poll.h>
+#include <fcntl.h>
 #include <netdb.h>
+#include <netinet/in.h>
+#include <poll.h>
 #include <signal.h>
 #include <sys/socket.h>
 #include <sys/types.h>
 #include <unistd.h>
-#include <fcntl.h>
 
 using namespace std::chrono_literals;
 
@@ -55,17 +52,15 @@ constexpr size_t BUFSIZE = 1024;
 std::uniform_int_distribution<> dist(150, 300);
 std::random_device rd{};
 std::mt19937 gen(rd());
-int GetRandomDuration() {
-  return dist(gen);
-}
+int GetRandomDuration() { return dist(gen); }
 
-std::vector<ServerInfo> ExtractServerInfo(const std::string& si) {
+std::vector<ServerInfo> ExtractServerInfo(const std::string &si) {
   std::istringstream istr{si};
   std::vector<ServerInfo> infos;
   for (std::string line; std::getline(istr, line, ',');) {
     auto delim_pos = line.find(':');
     std::string ip = line.substr(0, delim_pos);
-    uint16_t port = std::stoi(line.substr(delim_pos+1));
+    uint16_t port = std::stoi(line.substr(delim_pos + 1));
     infos.emplace_back(std::move(ip), port);
   }
   return infos;
@@ -82,8 +77,7 @@ std::string StateToString(State state) {
 } // end anonymous namespace
 
 Server::Server(int cluster_size, int server_idx, std::string server_info)
-    : numservers_{cluster_size},
-      praftservice_{std::make_unique<RaftService>()},
+    : numservers_{cluster_size}, praftservice_{std::make_unique<RaftService>()},
       pcommand_{std::make_unique<Command>()} {
 
   praftservice_->state().id_ = server_idx;
@@ -122,12 +116,10 @@ Server::Server(int cluster_size, int server_idx, std::string server_info)
     std::exit(EXIT_FAILURE);
   }
 
-  // int v = fcntl(sockfd_, F_SETFL, O_NONBLOCK);
-  
   // set so_reuseaddr
   int optval{1};
-  int ret = setsockopt(sockfd_, SOL_SOCKET, SO_REUSEADDR, &optval,
-                       sizeof(optval));
+  int ret =
+      setsockopt(sockfd_, SOL_SOCKET, SO_REUSEADDR, &optval, sizeof(optval));
   if (ret == -1) {
     perror("setsocketopt");
     std::exit(EXIT_FAILURE);
@@ -144,9 +136,7 @@ Server::Server(int cluster_size, int server_idx, std::string server_info)
   start();
 }
 
-Server::~Server() {
-  ::close(sockfd_);
-}
+Server::~Server() { ::close(sockfd_); }
 
 void Server::start() {
   while (true) {
@@ -166,9 +156,7 @@ void Server::start() {
   }
 }
 
-void Server::startFollowerLogConsistencyThread(const SenderInfo& sender_info) {
-
-}
+void Server::startFollowerLogConsistencyThread(const SenderInfo &sender_info) {}
 
 /* ================== FOLLOWER ============== */
 State Server::doFollowerLoop() {
@@ -251,7 +239,8 @@ State Server::doFollowerLoop() {
           has_response = true;
         }
       } else if (praftservice_->hasRequestVoteRequest(buf)) {
-        [[maybe_unused]] bool sent_resp = sendRequestVoteResponse(buf, recv_data.si);
+        [[maybe_unused]] bool sent_resp =
+            sendRequestVoteResponse(buf, recv_data.si);
         {
           std::lock_guard lck{timer_mutex_};
           has_response = true;
@@ -277,10 +266,8 @@ State Server::doFollowerLoop() {
     }
   }
   std::println("[server@{}]: ---- finish doFollower. term={}, state={} ----",
-    port_,
-    praftservice_->state().current_term_,
-    StateToString(praftservice_->state().state_));
-
+               port_, praftservice_->state().current_term_,
+               StateToString(praftservice_->state().state_));
 
   return State::Candidate;
 }
@@ -292,9 +279,8 @@ State Server::doCandidateLoop() {
   praftservice_->state().state_ = State::Candidate;
   praftservice_->state().voted_for_.reset();
 
-  std::println("[server@{}]: ---- enter doCandidateLoop. term={} ----",
-    port_,
-    praftservice_->state().current_term_);
+  std::println("[server@{}]: ---- enter doCandidateLoop. term={} ----", port_,
+               praftservice_->state().current_term_);
 
   std::deque<Message> message_q;
 
@@ -336,7 +322,7 @@ State Server::doCandidateLoop() {
     free(pfds);
   }};
 
-  const size_t required_votes = numservers_/ 2 + 1;
+  const size_t required_votes = numservers_ / 2 + 1;
   size_t num_votes{1};
   std::jthread message_processing_thr{[&](std::stop_token stop_token) {
     std::println("[server@{}]: start candidate message_processing_thr", port_);
@@ -366,7 +352,8 @@ State Server::doCandidateLoop() {
 
       if (praftservice_->hasHigherTerm(buf).first) {
         const int higher_term = praftservice_->hasHigherTerm(buf).second;
-        std::println("[server@{}]: CandidateLoop complete. found higher term", port_);
+        std::println("[server@{}]: CandidateLoop complete. found higher term",
+                     port_);
         {
           std::lock_guard lck{timer_mutex_};
           praftservice_->state().state_ = State::Follower;
@@ -400,7 +387,7 @@ State Server::doCandidateLoop() {
       }
     }
   }};
-   
+
   [[maybe_unused]] std::cv_status status{std::cv_status::no_timeout};
   while (true) {
     // vote for self
@@ -412,7 +399,7 @@ State Server::doCandidateLoop() {
       sendRequestVote(servers_[i]);
     }
 
-    std::chrono::milliseconds timeout_duration{GetRandomDuration()}; 
+    std::chrono::milliseconds timeout_duration{GetRandomDuration()};
     std::unique_lock lck{timer_mutex_};
     status = timer_cv_.wait_for(lck, timeout_duration);
     if (praftservice_->state().state_ == State::Follower ||
@@ -431,10 +418,10 @@ State Server::doCandidateLoop() {
     messages_cv.notify_all();
   }
 
-  std::println("[server@{}]: ---- finish doCandidateLoop. term={}, state={} ----",
-    port_,
-    praftservice_->state().current_term_,
-    StateToString(praftservice_->state().state_));
+  std::println(
+      "[server@{}]: ---- finish doCandidateLoop. term={}, state={} ----", port_,
+      praftservice_->state().current_term_,
+      StateToString(praftservice_->state().state_));
 
   return praftservice_->state().state_;
 }
@@ -442,20 +429,24 @@ State Server::doCandidateLoop() {
 
 /* ================ START LEADER ============== */
 State Server::doLeaderLoop() {
-  std::println("[server@{}]: ---- enter doLeaderLoop. term={} ----",
-    port_,
-    praftservice_->state().current_term_);
+  std::println("[server@{}]: ---- enter doLeaderLoop. term={} ----", port_,
+               praftservice_->state().current_term_);
 
   praftservice_->state().leader_state_.next_index_.resize(numservers_);
   praftservice_->state().leader_state_.match_index_.resize(numservers_);
 
   auto start = std::chrono::steady_clock::now();
-  std::chrono::duration<double> total{}; 
+  std::chrono::duration<double> total{};
 
   std::deque<Message> message_q;
+  std::deque<Message> appendentriesreply_q;
+  std::deque<Command> command_q;
 
   std::mutex messages_mutex;
   std::condition_variable_any messages_cv;
+
+  std::mutex commands_mutex;
+  std::condition_variable_any commands_cv;
 
   std::jthread message_receiver_thr_{[&](std::stop_token stop_token) {
     struct pollfd *pfds;
@@ -480,11 +471,63 @@ State Server::doLeaderLoop() {
                          (struct sockaddr *)&recv_si.peer_addr,
                          &recv_si.peer_addrlen);
           if (n > 0) {
-            std::lock_guard lck{messages_mutex};
-            message_q.push_back({std::string{buf, n},
-                                 {recv_si.peer_addr, recv_si.peer_addrlen}});
-            messages_cv.notify_one();
+            const bool has_put_msg = pcommand_->hasPut({buf, n});
+            const bool has_ae_reply =
+                praftservice_->hasAppendEntriesReply({buf, n});
+
+            if (has_put_msg || has_ae_reply) {
+              {
+                std::lock_guard lck{commands_mutex};
+                if (has_put_msg) {
+                  // add the command locally in the commit log
+                  praftservice_->state().commit_log_.push_back(Entry{
+                      praftservice_->state().current_term_, recv_data.msg});
+                  command_q.push_back(
+                      {std::string{buf, n},
+                       {recv_si.peer_addr, recv_si.peer_addrlen}},
+                      numservers_);
+                } else {
+                  appendentriesreply_q.push_back(
+                      {std::string{buf, n},
+                       {recv_si.peer_addr, recv_si.peer_addrlen}});
+                }
+              }
+              commands_cv.notify_one();
+            } else {
+              std::lock_guard lck{messages_mutex};
+              message_q.push_back({std::string{buf, n},
+                                   {recv_si.peer_addr, recv_si.peer_addrlen}});
+              messages_cv.notify_one();
+            }
           }
+        }
+      }
+    }
+  }};
+
+  std::jthread command_processing_thr{[&](std::stop_token stop_token) {
+    while (!stop_token.stop_requested()) {
+      std::unique_lock lck{commands_mutex};
+      auto pred = [&]() { return !appendentriesreply_q.empty(); };
+      if (!commands_cv.wait(lck, stop_token, pred)) {
+        return;
+      }
+      auto recv_data = appendentriesreply_q.front();
+      appendentriesreply_q.pop_front();
+      lck.unlock();
+
+      std::string_view buf{recv_data.msg};
+
+      if (auto resp = praftservice_->hasAppendEntriesReply(buf)) {
+        if (std::get<0>(*resp)) {
+          int id = std::get<1>(*resp);
+          {
+            std::lock_guard lck{commands_mutex};
+            updateCommandQState(command_q);
+          }
+          std::println("[server@{}]: entry safely replicated. commit "
+                       "log size={}",
+                       port_, praftservice_->state().commit_log_.size());
         }
       }
     }
@@ -492,8 +535,6 @@ State Server::doLeaderLoop() {
 
   const size_t required_votes = (numservers_ - 1) / 2 + 1;
   size_t num_responses{0};
-
-  std::deque<CommandMessage> command_q;
 
   std::jthread message_processing_thr{[&](std::stop_token stop_token) {
     while (!stop_token.stop_requested()) {
@@ -506,49 +547,11 @@ State Server::doLeaderLoop() {
 
       auto recv_data = message_q.front();
       message_q.pop_front();
-
-      if (pcommand_->hasPut(recv_data.msg.data())) {
-        std::println("[server@{}]: doLeaderLoop. hasPut", port_);
-        // add the command locally in the commit log
-        praftservice_->state().commit_log_.push_back(
-            Entry{praftservice_->state().current_term_, recv_data.msg});
-        command_q.push_back({recv_data, numservers_}); 
-      }
       lck.unlock();
-      
+
       std::string_view buf{recv_data.msg};
 
-      if (!command_q.empty() && command_q.front().num_replicated < required_votes) { 
-        for (int i{}; i < numservers_; ++i) {
-          if (i == praftservice_->state().id_) {
-            continue;
-          }
-          if (!command_q.front().processed_entries[i]) {
-              sendAppendEntries(command_q.front(), i);
-          }
-        }
-      }
-
-      if (!command_q.empty() && command_q.front().num_replicated <= required_votes) {
-        if (auto resp = praftservice_->hasAppendEntriesReply(buf)) {
-          if (std::get<0>(*resp)) {
-            int id = std::get<1>(*resp);
-            command_q.front().processed_entries[id] = true;
-            ++command_q.front().num_replicated;
-            if (command_q.front().num_replicated >= required_votes) {
-              // respond to client
-              command_q.pop_front();
-              // command safely replicated on majority. update the commit
-              // index.
-              praftservice_->state().commit_index_ =
-                  praftservice_->state().commit_log_.size() - 1;
-              std::println(
-                  "[server@{}]: entry safely replicated. commit log size={}",
-                  port_, praftservice_->state().commit_log_.size());
-            }
-          }
-        }
-      } else if (praftservice_->hasHigherTerm(buf).first) {
+      if (praftservice_->hasHigherTerm(buf).first) {
         std::println("[server@{}]: RequestVotes complete. found higher term. "
                      "curr_term={}",
                      port_, praftservice_->state().current_term_);
@@ -583,15 +586,29 @@ State Server::doLeaderLoop() {
   bool has_heartbeats{false};
   int num_attempts{0};
 
-  while (true) { 
-    for (int i{}; command_q.empty() && i < numservers_; ++i) {
-      if (i == praftservice_->state().id_) {
-        continue;
+  while (true) {
+    if (!command_q.empty() &&
+        command_q.front().num_replicated < required_votes) {
+      for (int i{}; i < numservers_; ++i) {
+        if (i == praftservice_->state().id_) {
+          continue;
+        }
+        if (!command_q.front().processed_entries[i]) {
+          sendAppendEntries(command_q.front(), i);
+        }
       }
-      sendHeartBeat(i);
-    }
 
-    if (command_q.empty()) {
+      std::chrono::milliseconds timeout_duration{GetRandomDuration()};
+      std::unique_lock lck{commands_mutex};
+      [[maybe_unused]] auto cv_status =
+          timer_cv_.wait_for(lck, timeout_duration);
+    } else {
+      for (int i{}; i < numservers_; ++i) {
+        if (i == praftservice_->state().id_) {
+          continue;
+        }
+        sendHeartBeat(i);
+      }
       std::chrono::milliseconds timeout_duration{GetRandomDuration()};
       std::unique_lock lck{messages_mutex};
       has_heartbeats = timer_cv_.wait_for(lck, timeout_duration, [&]() {
@@ -616,18 +633,30 @@ State Server::doLeaderLoop() {
         }
       }
     }
-  }
-  std::println("[server@{}]: Leader state for={}", port_, total); 
+    std::println("[server@{}]: Leader state for={}", port_, total);
 
-  return State::Follower;
+    return State::Follower;
+  }
 }
+
+void Server::updateCommandQState(std::deque<Command>& command_q) {
+  command_q.front().processed_entries[id] = true;
+  ++command_q.front().num_replicated;
+  if (command_q.front().num_replicated >= required_votes) {
+    // respond to client
+    command_q.pop_front();
+    // command safely replicated on majority. update the commit
+    // index.
+    praftservice_->state().commit_index_ =
+        praftservice_->state().commit_log_.size() - 1;
+  }
 /* ================ END LEADER ================= */
 
 // ================= SENDERS ================= */
-void Server::sendRequestVote(const ServerInfo& server_info) {
+void Server::sendRequestVote(const ServerInfo &server_info) {
   struct sockaddr_in their_addr; // connector's address info
   memset(&their_addr, 0, sizeof(their_addr));
-  their_addr.sin_family = AF_INET;     // host byte order
+  their_addr.sin_family = AF_INET;                // host byte order
   their_addr.sin_port = htons(server_info.port_); // network byte order
   their_addr.sin_addr.s_addr = htonl(INADDR_ANY);
 
@@ -635,17 +664,18 @@ void Server::sendRequestVote(const ServerInfo& server_info) {
   const int candidate_id = praftservice_->state().id_;
 
   flatbuffers::FlatBufferBuilder fbb(1024);
-  const int last_log_index = praftservice_->state().commit_log_.size()-1;
+  const int last_log_index = praftservice_->state().commit_log_.size() - 1;
   const int last_log_term =
       praftservice_->state().commit_log_[last_log_index].term;
   auto o = CreateRequestVoteRPC(fbb, vote_term, candidate_id, last_log_index,
                                 last_log_term);
   fbb.Finish(o);
 
-  uint8_t* buf = fbb.GetBufferPointer();
+  uint8_t *buf = fbb.GetBufferPointer();
   int size = fbb.GetSize();
 
-  if (sendto(sockfd_, buf, size, 0, (struct sockaddr*)&their_addr, sizeof(their_addr)) != size) {
+  if (sendto(sockfd_, buf, size, 0, (struct sockaddr *)&their_addr,
+             sizeof(their_addr)) != size) {
     perror("sendto");
     fprintf(stderr, "error sending REQUEST VOTE");
   }
@@ -655,23 +685,24 @@ void Server::sendRequestVote(const ServerInfo& server_info) {
 // If votedFor is null or candidateId, and candidate’s log is at
 //    least as up-to-date as receiver’s log, grant vote
 // at most one vote in a given term
-bool Server::sendRequestVoteResponse(std::string_view request, const SenderInfo& sender_info) {
-  const RequestVoteRPC* preq = GetRequestVoteRPC(static_cast<const void*>(request.data()));
+bool Server::sendRequestVoteResponse(std::string_view request,
+                                     const SenderInfo &sender_info) {
+  const RequestVoteRPC *preq =
+      GetRequestVoteRPC(static_cast<const void *>(request.data()));
   if (!preq) {
     std::cerr << "sendRequestVoteResponse preq null\n";
     return false;
   }
 
-  std::println("[server@{}]: sendRequestVoteResponse to={} term={}",
-    port_,
-    preq->candidate_id(),
-    
-    praftservice_->state().current_term_);
+  std::println("[server@{}]: sendRequestVoteResponse to={} term={}", port_,
+               preq->candidate_id(),
+
+               praftservice_->state().current_term_);
 
   const int term = preq->term();
   const int curr_term = praftservice_->state().current_term_;
 
-  auto& voted_for_opt= praftservice_->state().voted_for_;
+  auto &voted_for_opt = praftservice_->state().voted_for_;
   int voted_for = -1;
   if (voted_for_opt) {
     voted_for = voted_for_opt.value();
@@ -679,41 +710,38 @@ bool Server::sendRequestVoteResponse(std::string_view request, const SenderInfo&
 
   bool vote_granted{false};
 
-  if (term >= curr_term && (
-    (!voted_for_opt || voted_for_opt.value() == preq->candidate_id()) &&
-    preq->last_log_index() >= praftservice_->state().commit_index_)) {
+  if (term >= curr_term &&
+      ((!voted_for_opt || voted_for_opt.value() == preq->candidate_id()) &&
+       preq->last_log_index() >= praftservice_->state().commit_index_)) {
     voted_for_opt = preq->candidate_id();
     vote_granted = true;
   }
- 
+
   flatbuffers::FlatBufferBuilder fbb{1024};
   auto o = CreateRequestVoteRPCReply(fbb, curr_term, vote_granted);
   fbb.Finish(o);
-  
-  uint8_t* reply_buf = fbb.GetBufferPointer();
+
+  uint8_t *reply_buf = fbb.GetBufferPointer();
   int size = fbb.GetSize();
-  
+
   int ret = ::sendto(sockfd_, reply_buf, size, 0,
-    (struct sockaddr*)&sender_info.peer_addr, sender_info.peer_addrlen);
+                     (struct sockaddr *)&sender_info.peer_addr,
+                     sender_info.peer_addrlen);
   if (ret != size) {
     perror("sendto");
     std::cerr << "error sending requestvote response\n";
   }
- 
+
   std::println("[server@{}]: vote_granted={}, to={} voted_for={}, for term={}",
-              port_,
-              vote_granted,
-              preq->candidate_id(),
-              voted_for,
-              term);
+               port_, vote_granted, preq->candidate_id(), voted_for, term);
 
   return vote_granted;
 }
 
-void Server::sendAppendEntries(const CommandMessage& message, size_t server_idx) {
-  std::println("[server@{}]: sendAppendEntries term={}",
-    port_,
-    praftservice_->state().current_term_);
+void Server::sendAppendEntries(const CommandMessage &message,
+                               size_t server_idx) {
+  std::println("[server@{}]: sendAppendEntries term={}", port_,
+               praftservice_->state().current_term_);
 
   // update next index
   praftservice_->state().leader_state_.next_index_[server_idx] =
@@ -722,10 +750,10 @@ void Server::sendAppendEntries(const CommandMessage& message, size_t server_idx)
   int term = praftservice_->state().current_term_;
   int leader_id = praftservice_->state().id_;
 
-  int leader_commit = praftservice_->state().commit_log_.size()-1;
+  int leader_commit = praftservice_->state().commit_log_.size() - 1;
 
-  int prev_log_index = leader_commit - 1; 
-  int prev_log_term = praftservice_->state().commit_log_[prev_log_index].term; 
+  int prev_log_index = leader_commit - 1;
+  int prev_log_term = praftservice_->state().commit_log_[prev_log_index].term;
 
   flatbuffers::FlatBufferBuilder builder;
   auto fb_str = builder.CreateString(message.msg.c_str());
@@ -735,28 +763,22 @@ void Server::sendAppendEntries(const CommandMessage& message, size_t server_idx)
   entries_v.push_back(log_entry);
 
   auto entries = builder.CreateVector(entries_v);
-  auto off = CreateAppendEntriesRPC(
-    builder,
-    term,
-    leader_id,
-    prev_log_index,
-    prev_log_term,
-    entries,
-    leader_commit
-  );
+  auto off = CreateAppendEntriesRPC(builder, term, leader_id, prev_log_index,
+                                    prev_log_term, entries, leader_commit);
   builder.Finish(off);
 
-  uint8_t* buf = builder.GetBufferPointer();
+  uint8_t *buf = builder.GetBufferPointer();
   int size = builder.GetSize();
- 
+
   const auto server_info = servers_[server_idx];
   struct sockaddr_in their_addr; // connector's address info
   memset(&their_addr, 0, sizeof(their_addr));
-  their_addr.sin_family = AF_INET;     // host byte order
+  their_addr.sin_family = AF_INET;                // host byte order
   their_addr.sin_port = htons(server_info.port_); // network byte order
-  their_addr.sin_addr.s_addr = htonl(INADDR_ANY); // network byte order 
+  their_addr.sin_addr.s_addr = htonl(INADDR_ANY); // network byte order
 
-  if (sendto(sockfd_, buf, size, 0, (struct sockaddr*)&their_addr, sizeof(their_addr)) != size) {
+  if (sendto(sockfd_, buf, size, 0, (struct sockaddr *)&their_addr,
+             sizeof(their_addr)) != size) {
     perror("sendto");
     fprintf(stderr, "error sending REQUEST VOTE");
   }
@@ -773,15 +795,16 @@ follow it (§5.3)
 5. If leaderCommit > commitIndex, set commitIndex =
 min(leaderCommit, index of last new entry)
 */
-void Server::sendAppendEntriesResponse(std::string_view request, const SenderInfo& sender_info) {
+void Server::sendAppendEntriesResponse(std::string_view request,
+                                       const SenderInfo &sender_info) {
 
-  const void* pbuf = static_cast<const void*>(request.data());  
-  const AppendEntriesRPC* preq = GetAppendEntriesRPC(pbuf);
+  const void *pbuf = static_cast<const void *>(request.data());
+  const AppendEntriesRPC *preq = GetAppendEntriesRPC(pbuf);
 
   if (!preq) {
     std::cerr << "sendAppendEntriesResponse bad request\n";
   }
- 
+
   const int term = preq->term();
   const int prev_log_index = preq->prev_log_index();
   const int prev_log_term = preq->prev_log_term();
@@ -792,21 +815,18 @@ void Server::sendAppendEntriesResponse(std::string_view request, const SenderInf
   const int leader_id = preq->leader_id();
 
   std::println("[server@{}]: sendAppendEntriesResponse input "
-    "term = {}, prev_log_index={}, prev_log_term={} cmd={}", 
-    port_,
-    term,
-    prev_log_index,
-    prev_log_term,
-    cmd);
+               "term = {}, prev_log_index={}, prev_log_term={} cmd={}",
+               port_, term, prev_log_index, prev_log_term, cmd);
 
   bool success{true};
   // cover all the false cases
   if (praftservice_->state().current_term_ < term) {
-    std::println("[server@{}]: sendAppendEntriesResponse current_term_ < term", port_); 
+    std::println("[server@{}]: sendAppendEntriesResponse current_term_ < term",
+                 port_);
     success = false;
   }
-  
-  auto& log = praftservice_->state().commit_log_;
+
+  auto &log = praftservice_->state().commit_log_;
 
   if (prev_log_index >= log.size() ||
       log[prev_log_index].term != prev_log_term) {
@@ -825,34 +845,31 @@ void Server::sendAppendEntriesResponse(std::string_view request, const SenderInf
             std::min(leader_commit, static_cast<int>(log.size() - 1));
       }
     } else {
-      log.push_back({cmd_term, cmd});      
+      log.push_back({cmd_term, cmd});
     }
     praftservice_->state().current_term_ = term;
   }
 
   flatbuffers::FlatBufferBuilder fbb{1024};
-  auto o = CreateAppendEntriesRPCReply(fbb,
-                                       praftservice_->state().current_term_,
-                                       success,
-                                       praftservice_->state().id_,
-                                       103);
+  auto o =
+      CreateAppendEntriesRPCReply(fbb, praftservice_->state().current_term_,
+                                  success, praftservice_->state().id_, 103);
   fbb.Finish(o);
 
-  uint8_t* reply_buf = fbb.GetBufferPointer();
+  uint8_t *reply_buf = fbb.GetBufferPointer();
   int size = fbb.GetSize();
-  
+
   int ret = ::sendto(sockfd_, reply_buf, size, 0,
-    (struct sockaddr*)&sender_info.peer_addr, sender_info.peer_addrlen);
+                     (struct sockaddr *)&sender_info.peer_addr,
+                     sender_info.peer_addrlen);
   if (ret != size) {
     std::cerr << "error sending heartbeat response\n";
-  }  
-  
-  std::println("[server@{}]: sendAppendEntriesResponse to={}. term={} success={} log size={}",
-    port_,
-    leader_id,
-    praftservice_->state().current_term_,
-    success,
-    praftservice_->state().commit_log_.size());
+  }
+
+  std::println("[server@{}]: sendAppendEntriesResponse to={}. term={} "
+               "success={} log size={}",
+               port_, leader_id, praftservice_->state().current_term_, success,
+               praftservice_->state().commit_log_.size());
 }
 
 void Server::sendHeartBeat(size_t server_idx) {
@@ -863,31 +880,31 @@ void Server::sendHeartBeat(size_t server_idx) {
     praftservice_->state().current_term_);
   */
   flatbuffers::FlatBufferBuilder fbb(1024);
-  auto off = CreateAppendEntriesRPC(
-      fbb,
-      praftservice_->state().current_term_,
-      praftservice_->state().id_);
+  auto off = CreateAppendEntriesRPC(fbb, praftservice_->state().current_term_,
+                                    praftservice_->state().id_);
   fbb.Finish(off);
 
-  uint8_t* buf = fbb.GetBufferPointer();
+  uint8_t *buf = fbb.GetBufferPointer();
   int size = fbb.GetSize();
- 
+
   const auto server_info = servers_[server_idx];
   struct sockaddr_in their_addr; // connector's address info
   memset(&their_addr, 0, sizeof(their_addr));
-  their_addr.sin_family = AF_INET;     // host byte order
+  their_addr.sin_family = AF_INET;                // host byte order
   their_addr.sin_port = htons(server_info.port_); // network byte order
-  their_addr.sin_addr.s_addr = htonl(INADDR_ANY); // network byte order 
+  their_addr.sin_addr.s_addr = htonl(INADDR_ANY); // network byte order
 
-  if (sendto(sockfd_, buf, size, 0, (struct sockaddr*)&their_addr, sizeof(their_addr)) != size) {
+  if (sendto(sockfd_, buf, size, 0, (struct sockaddr *)&their_addr,
+             sizeof(their_addr)) != size) {
     perror("sendto");
     fprintf(stderr, "error sending REQUEST VOTE");
   }
 }
 
-void Server::sendHeartBeatResponse(std::string_view request, const SenderInfo& sender_info) {
-  const void* pbuf = static_cast<const void*>(request.data());  
-  const AppendEntriesRPC* preq = GetAppendEntriesRPC(pbuf);
+void Server::sendHeartBeatResponse(std::string_view request,
+                                   const SenderInfo &sender_info) {
+  const void *pbuf = static_cast<const void *>(request.data());
+  const AppendEntriesRPC *preq = GetAppendEntriesRPC(pbuf);
 
   if (!preq) {
     std::cerr << "request not of type sendHeartBeatResponse\n";
@@ -896,12 +913,12 @@ void Server::sendHeartBeatResponse(std::string_view request, const SenderInfo& s
 
   bool success{true};
   int curr_term = praftservice_->state().current_term_;
-  if (preq->term() < curr_term) { 
+  if (preq->term() < curr_term) {
     success = false;
   }
 
   praftservice_->state().leader_id_ = preq->leader_id();
-  praftservice_->state().current_term_ = preq->term(); 
+  praftservice_->state().current_term_ = preq->term();
 
   /*
   std::println("[server@{}]: sendHeartBeatReply to={} term={}",
@@ -912,29 +929,33 @@ void Server::sendHeartBeatResponse(std::string_view request, const SenderInfo& s
   flatbuffers::FlatBufferBuilder fbb{1024};
   auto o = CreateAppendEntriesRPCReply(fbb, curr_term, success); // TODO
   fbb.Finish(o);
-  
-  uint8_t* reply_buf = fbb.GetBufferPointer();
+
+  uint8_t *reply_buf = fbb.GetBufferPointer();
   int size = fbb.GetSize();
-  
+
   int ret = ::sendto(sockfd_, reply_buf, size, 0,
-    (struct sockaddr*)&sender_info.peer_addr, sender_info.peer_addrlen);
+                     (struct sockaddr *)&sender_info.peer_addr,
+                     sender_info.peer_addrlen);
   if (ret != size) {
     std::cerr << "error sending heartbeat response\n";
   }
 }
 
-void Server::sendLeaderRedirect(const SenderInfo& sender_info) {
-  std::println("[server@{}]: redirect to leader_id={}", port_, praftservice_->state().leader_id_);
+void Server::sendLeaderRedirect(const SenderInfo &sender_info) {
+  std::println("[server@{}]: redirect to leader_id={}", port_,
+               praftservice_->state().leader_id_);
 
   flatbuffers::FlatBufferBuilder fbb{1024};
-  auto o = CreateCommandResponse(fbb, false, servers_[praftservice_->state().leader_id_].port_);
+  auto o = CreateCommandResponse(
+      fbb, false, servers_[praftservice_->state().leader_id_].port_);
   fbb.Finish(o);
 
-  uint8_t* reply_buf = fbb.GetBufferPointer();
+  uint8_t *reply_buf = fbb.GetBufferPointer();
   int size{fbb.GetSize()};
 
   int ret = ::sendto(sockfd_, reply_buf, size, 0,
-    (struct sockaddr*)&sender_info.peer_addr, sender_info.peer_addrlen);
+                     (struct sockaddr *)&sender_info.peer_addr,
+                     sender_info.peer_addrlen);
   if (ret != size) {
     perror("sendto");
     std::cerr << "error sending requestvote response\n";
@@ -948,7 +969,7 @@ void termination_handler(int signal) {
   std::exit(EXIT_FAILURE);
 }
 
-int main(int argc, char** argv) {
+int main(int argc, char **argv) {
 
   if (signal(SIGINT, termination_handler) == SIG_ERR) {
     perror("signal");
@@ -965,7 +986,6 @@ int main(int argc, char** argv) {
   proc_numeric_id = idx;
 
   std::string serverinfo{argv[3]};
-
 
   Server s{num_servers, idx, serverinfo};
 }
