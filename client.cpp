@@ -31,9 +31,10 @@ int main(int argc, char* argv[]) {
   std::string key{argv[2]};
   std::string val{argv[3]};
   auto fb_key = builder.CreateString(key.c_str());
-  auto fb_val = builder.CreateString(val.c_str());
+  // auto fb_val = builder.CreateString(val.c_str());
+  int fb_val = std::atoi(argv[3]);
 
-  auto off = CreateCommandPut(builder, fb_key, fb_val, 99);
+  auto off = CreateCommandPut(builder, 99, fb_key, fb_val); 
   builder.Finish(off);
 
   uint8_t* buf = builder.GetBufferPointer();

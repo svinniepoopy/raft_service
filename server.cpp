@@ -268,6 +268,7 @@ State Server::doFollowerLoop() {
       messages_cv.notify_all();
       break;
     }
+    has_response = false;
   }
   std::println("[server@{}]: ---- finish doFollower. term={}, state={} ----",
                port_, praftservice_->state().current_term_,
@@ -516,6 +517,7 @@ State Server::doLeaderLoop() {
         }
       }
     }
+    free(pfds);
   }};
 
   const size_t required_votes = (numservers_ - 1) / 2 + 1;
@@ -905,19 +907,31 @@ void Server::sendAppendEntriesResponse(std::string_view request,
 }
 
 void Server::sendHeartBeat(size_t server_idx) {
+
   /*
   std::println("[server@{}]: sendHeartBeat to={}. term={}",
     port_,
     server_idx,
     praftservice_->state().current_term_);
   */
-  flatbuffers::FlatBufferBuilder fbb(1024);
-  auto off = CreateAppendEntriesRPC(fbb, praftservice_->state().current_term_,
-                                    praftservice_->state().id_, 11);
-  fbb.Finish(off);
+  int term = praftservice_->state().current_term_;
+  int leader_id = praftservice_->state().id_;
 
-  uint8_t *buf = fbb.GetBufferPointer();
-  int size = fbb.GetSize();
+  int leader_commit = praftservice_->state().commit_log_.size() - 1;
+
+  int prev_log_index = 0; 
+  int prev_log_term = 0; 
+
+  flatbuffers::FlatBufferBuilder builder; 
+  std::vector<::flatbuffers::Offset<LogEntry>> entries_v;
+  auto entries = builder.CreateVector(entries_v);
+
+  auto off = CreateAppendEntriesRPC(builder, term, leader_id, prev_log_index,
+                                    prev_log_term, entries, leader_commit, 11);
+  builder.Finish(off);
+
+  uint8_t *buf = builder.GetBufferPointer();
+  int size = builder.GetSize();
 
   const auto server_info = servers_[server_idx];
   struct sockaddr_in their_addr; // connector's address info
@@ -959,7 +973,7 @@ void Server::sendHeartBeatResponse(std::string_view request,
     praftservice_->state().current_term_);
   */
   flatbuffers::FlatBufferBuilder fbb{1024};
-  auto o = CreateAppendEntriesRPCReply(fbb, 22, curr_term, success); // TODO
+  auto o = CreateAppendEntriesRPCReply(fbb, 23, curr_term, success); // TODO
   fbb.Finish(o);
 
   uint8_t *reply_buf = fbb.GetBufferPointer();

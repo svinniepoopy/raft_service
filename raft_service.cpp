@@ -7,6 +7,7 @@
 #include "generated/RequestVote_generated.h"
 #include "generated/RequestVoteReply_generated.h"
 
+#include <iostream>
 #include <optional>
 #include <string_view>
 #include <tuple>
@@ -65,10 +66,13 @@ bool RaftService::hasHeartBeatInRequest(std::string_view buf) {
   const void* pbuf = static_cast<const void*>(buf.data());
   const AppendEntriesRPC* rpc = GetAppendEntriesRPC(pbuf);
   if (!rpc || rpc->version() != 11) {
-    return nullptr;
+    return false;
   }
   const auto entries = rpc->entries();
-  return entries == nullptr;
+  if (entries == nullptr) {
+    std::cerr << "hasHeartBeatInrequest entries nullptr\n";
+  }
+  return entries->size() == 0; 
 }
 
 bool RaftService::hasHeartBeatInResponse(std::string_view buf) {
@@ -77,7 +81,7 @@ bool RaftService::hasHeartBeatInResponse(std::string_view buf) {
   if (!reply) {
     return false;
   }
-  return reply && reply->version() == 22 && reply->success(); 
+  return reply && reply->version() == 23 && reply->success(); 
 }
 
 bool RaftService::hasVoteInRequestVoteResponse(std::string_view buf) {
