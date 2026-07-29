@@ -19,14 +19,18 @@ struct InstallSnapshotBuilder;
 struct InstallSnapshot FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
   typedef InstallSnapshotBuilder Builder;
   enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
-    VT_TERM = 4,
-    VT_LEADER_ID = 6,
-    VT_LAST_INCLUDED_INDEX = 8,
-    VT_LAST_INCLUDED_TERM = 10,
-    VT_OFFSET = 12,
-    VT_DATA = 14,
-    VT_DONE = 16
+    VT_VERSION = 4,
+    VT_TERM = 6,
+    VT_LEADER_ID = 8,
+    VT_LAST_INCLUDED_INDEX = 10,
+    VT_LAST_INCLUDED_TERM = 12,
+    VT_OFFSET = 14,
+    VT_DATA = 16,
+    VT_DONE = 18
   };
+  int32_t version() const {
+    return GetField<int32_t>(VT_VERSION, 0);
+  }
   int32_t term() const {
     return GetField<int32_t>(VT_TERM, 0);
   }
@@ -51,6 +55,7 @@ struct InstallSnapshot FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
   template <bool B = false>
   bool Verify(::flatbuffers::VerifierTemplate<B> &verifier) const {
     return VerifyTableStart(verifier) &&
+           VerifyField<int32_t>(verifier, VT_VERSION, 4) &&
            VerifyField<int32_t>(verifier, VT_TERM, 4) &&
            VerifyField<int32_t>(verifier, VT_LEADER_ID, 4) &&
            VerifyField<int32_t>(verifier, VT_LAST_INCLUDED_INDEX, 4) &&
@@ -67,6 +72,9 @@ struct InstallSnapshotBuilder {
   typedef InstallSnapshot Table;
   ::flatbuffers::FlatBufferBuilder &fbb_;
   ::flatbuffers::uoffset_t start_;
+  void add_version(int32_t version) {
+    fbb_.AddElement<int32_t>(InstallSnapshot::VT_VERSION, version, 0);
+  }
   void add_term(int32_t term) {
     fbb_.AddElement<int32_t>(InstallSnapshot::VT_TERM, term, 0);
   }
@@ -101,6 +109,7 @@ struct InstallSnapshotBuilder {
 
 inline ::flatbuffers::Offset<InstallSnapshot> CreateInstallSnapshot(
     ::flatbuffers::FlatBufferBuilder &_fbb,
+    int32_t version = 0,
     int32_t term = 0,
     int32_t leader_id = 0,
     int32_t last_included_index = 0,
@@ -115,12 +124,14 @@ inline ::flatbuffers::Offset<InstallSnapshot> CreateInstallSnapshot(
   builder_.add_last_included_index(last_included_index);
   builder_.add_leader_id(leader_id);
   builder_.add_term(term);
+  builder_.add_version(version);
   builder_.add_done(done);
   return builder_.Finish();
 }
 
 inline ::flatbuffers::Offset<InstallSnapshot> CreateInstallSnapshotDirect(
     ::flatbuffers::FlatBufferBuilder &_fbb,
+    int32_t version = 0,
     int32_t term = 0,
     int32_t leader_id = 0,
     int32_t last_included_index = 0,
@@ -131,6 +142,7 @@ inline ::flatbuffers::Offset<InstallSnapshot> CreateInstallSnapshotDirect(
   auto data__ = data ? _fbb.CreateVector<uint8_t>(*data) : 0;
   return CreateInstallSnapshot(
       _fbb,
+      version,
       term,
       leader_id,
       last_included_index,

@@ -19,27 +19,26 @@ struct CommandPutBuilder;
 struct CommandPut FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
   typedef CommandPutBuilder Builder;
   enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
-    VT_KEY = 4,
-    VT_VALUE = 6,
-    VT_VERSION = 8
+    VT_VERSION = 4,
+    VT_KEY = 6,
+    VT_VALUE = 8
   };
+  int32_t version() const {
+    return GetField<int32_t>(VT_VERSION, 0);
+  }
   const ::flatbuffers::String *key() const {
     return GetPointer<const ::flatbuffers::String *>(VT_KEY);
   }
-  const ::flatbuffers::String *value() const {
-    return GetPointer<const ::flatbuffers::String *>(VT_VALUE);
-  }
-  int32_t version() const {
-    return GetField<int32_t>(VT_VERSION, 0);
+  int32_t value() const {
+    return GetField<int32_t>(VT_VALUE, 0);
   }
   template <bool B = false>
   bool Verify(::flatbuffers::VerifierTemplate<B> &verifier) const {
     return VerifyTableStart(verifier) &&
+           VerifyField<int32_t>(verifier, VT_VERSION, 4) &&
            VerifyOffset(verifier, VT_KEY) &&
            verifier.VerifyString(key()) &&
-           VerifyOffset(verifier, VT_VALUE) &&
-           verifier.VerifyString(value()) &&
-           VerifyField<int32_t>(verifier, VT_VERSION, 4) &&
+           VerifyField<int32_t>(verifier, VT_VALUE, 4) &&
            verifier.EndTable();
   }
 };
@@ -48,14 +47,14 @@ struct CommandPutBuilder {
   typedef CommandPut Table;
   ::flatbuffers::FlatBufferBuilder &fbb_;
   ::flatbuffers::uoffset_t start_;
+  void add_version(int32_t version) {
+    fbb_.AddElement<int32_t>(CommandPut::VT_VERSION, version, 0);
+  }
   void add_key(::flatbuffers::Offset<::flatbuffers::String> key) {
     fbb_.AddOffset(CommandPut::VT_KEY, key);
   }
-  void add_value(::flatbuffers::Offset<::flatbuffers::String> value) {
-    fbb_.AddOffset(CommandPut::VT_VALUE, value);
-  }
-  void add_version(int32_t version) {
-    fbb_.AddElement<int32_t>(CommandPut::VT_VERSION, version, 0);
+  void add_value(int32_t value) {
+    fbb_.AddElement<int32_t>(CommandPut::VT_VALUE, value, 0);
   }
   explicit CommandPutBuilder(::flatbuffers::FlatBufferBuilder &_fbb)
         : fbb_(_fbb) {
@@ -70,28 +69,27 @@ struct CommandPutBuilder {
 
 inline ::flatbuffers::Offset<CommandPut> CreateCommandPut(
     ::flatbuffers::FlatBufferBuilder &_fbb,
+    int32_t version = 0,
     ::flatbuffers::Offset<::flatbuffers::String> key = 0,
-    ::flatbuffers::Offset<::flatbuffers::String> value = 0,
-    int32_t version = 0) {
+    int32_t value = 0) {
   CommandPutBuilder builder_(_fbb);
-  builder_.add_version(version);
   builder_.add_value(value);
   builder_.add_key(key);
+  builder_.add_version(version);
   return builder_.Finish();
 }
 
 inline ::flatbuffers::Offset<CommandPut> CreateCommandPutDirect(
     ::flatbuffers::FlatBufferBuilder &_fbb,
+    int32_t version = 0,
     const char *key = nullptr,
-    const char *value = nullptr,
-    int32_t version = 0) {
+    int32_t value = 0) {
   auto key__ = key ? _fbb.CreateString(key) : 0;
-  auto value__ = value ? _fbb.CreateString(value) : 0;
   return CreateCommandPut(
       _fbb,
+      version,
       key__,
-      value__,
-      version);
+      value);
 }
 
 inline const CommandPut *GetCommandPut(const void *buf) {

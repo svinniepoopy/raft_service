@@ -19,11 +19,15 @@ struct RequestVoteRPCBuilder;
 struct RequestVoteRPC FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
   typedef RequestVoteRPCBuilder Builder;
   enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
-    VT_TERM = 4,
-    VT_CANDIDATE_ID = 6,
-    VT_LAST_LOG_INDEX = 8,
-    VT_LAST_LOG_TERM = 10
+    VT_VERSION = 4,
+    VT_TERM = 6,
+    VT_CANDIDATE_ID = 8,
+    VT_LAST_LOG_INDEX = 10,
+    VT_LAST_LOG_TERM = 12
   };
+  int32_t version() const {
+    return GetField<int32_t>(VT_VERSION, 0);
+  }
   int32_t term() const {
     return GetField<int32_t>(VT_TERM, 0);
   }
@@ -39,6 +43,7 @@ struct RequestVoteRPC FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
   template <bool B = false>
   bool Verify(::flatbuffers::VerifierTemplate<B> &verifier) const {
     return VerifyTableStart(verifier) &&
+           VerifyField<int32_t>(verifier, VT_VERSION, 4) &&
            VerifyField<int32_t>(verifier, VT_TERM, 4) &&
            VerifyField<int32_t>(verifier, VT_CANDIDATE_ID, 4) &&
            VerifyField<int32_t>(verifier, VT_LAST_LOG_INDEX, 4) &&
@@ -51,6 +56,9 @@ struct RequestVoteRPCBuilder {
   typedef RequestVoteRPC Table;
   ::flatbuffers::FlatBufferBuilder &fbb_;
   ::flatbuffers::uoffset_t start_;
+  void add_version(int32_t version) {
+    fbb_.AddElement<int32_t>(RequestVoteRPC::VT_VERSION, version, 0);
+  }
   void add_term(int32_t term) {
     fbb_.AddElement<int32_t>(RequestVoteRPC::VT_TERM, term, 0);
   }
@@ -76,6 +84,7 @@ struct RequestVoteRPCBuilder {
 
 inline ::flatbuffers::Offset<RequestVoteRPC> CreateRequestVoteRPC(
     ::flatbuffers::FlatBufferBuilder &_fbb,
+    int32_t version = 0,
     int32_t term = 0,
     int32_t candidate_id = 0,
     int32_t last_log_index = 0,
@@ -85,6 +94,7 @@ inline ::flatbuffers::Offset<RequestVoteRPC> CreateRequestVoteRPC(
   builder_.add_last_log_index(last_log_index);
   builder_.add_candidate_id(candidate_id);
   builder_.add_term(term);
+  builder_.add_version(version);
   return builder_.Finish();
 }
 

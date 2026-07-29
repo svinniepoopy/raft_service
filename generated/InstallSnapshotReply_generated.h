@@ -19,20 +19,20 @@ struct InstallSnapshotReplyBuilder;
 struct InstallSnapshotReply FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
   typedef InstallSnapshotReplyBuilder Builder;
   enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
-    VT_TERM = 4,
-    VT_VERSION = 6
+    VT_VERSION = 4,
+    VT_TERM = 6
   };
-  int32_t term() const {
-    return GetField<int32_t>(VT_TERM, 0);
-  }
   int32_t version() const {
     return GetField<int32_t>(VT_VERSION, 0);
+  }
+  int32_t term() const {
+    return GetField<int32_t>(VT_TERM, 0);
   }
   template <bool B = false>
   bool Verify(::flatbuffers::VerifierTemplate<B> &verifier) const {
     return VerifyTableStart(verifier) &&
-           VerifyField<int32_t>(verifier, VT_TERM, 4) &&
            VerifyField<int32_t>(verifier, VT_VERSION, 4) &&
+           VerifyField<int32_t>(verifier, VT_TERM, 4) &&
            verifier.EndTable();
   }
 };
@@ -41,11 +41,11 @@ struct InstallSnapshotReplyBuilder {
   typedef InstallSnapshotReply Table;
   ::flatbuffers::FlatBufferBuilder &fbb_;
   ::flatbuffers::uoffset_t start_;
-  void add_term(int32_t term) {
-    fbb_.AddElement<int32_t>(InstallSnapshotReply::VT_TERM, term, 0);
-  }
   void add_version(int32_t version) {
     fbb_.AddElement<int32_t>(InstallSnapshotReply::VT_VERSION, version, 0);
+  }
+  void add_term(int32_t term) {
+    fbb_.AddElement<int32_t>(InstallSnapshotReply::VT_TERM, term, 0);
   }
   explicit InstallSnapshotReplyBuilder(::flatbuffers::FlatBufferBuilder &_fbb)
         : fbb_(_fbb) {
@@ -60,11 +60,11 @@ struct InstallSnapshotReplyBuilder {
 
 inline ::flatbuffers::Offset<InstallSnapshotReply> CreateInstallSnapshotReply(
     ::flatbuffers::FlatBufferBuilder &_fbb,
-    int32_t term = 0,
-    int32_t version = 0) {
+    int32_t version = 0,
+    int32_t term = 0) {
   InstallSnapshotReplyBuilder builder_(_fbb);
-  builder_.add_version(version);
   builder_.add_term(term);
+  builder_.add_version(version);
   return builder_.Finish();
 }
 

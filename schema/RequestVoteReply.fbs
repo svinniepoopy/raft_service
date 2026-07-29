@@ -1,4 +1,7 @@
+// version 66
+
 table RequestVoteRPCReply {
+    version:int;
     term:int;
     vote_granted:bool;
 }

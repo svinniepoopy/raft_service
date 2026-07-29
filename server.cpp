@@ -24,9 +24,11 @@
 #include <condition_variable>
 #include <ctime>
 #include <deque>
+#include <ios>
 #include <iostream>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <print>
 #include <queue>
 #include <random>
@@ -132,7 +134,7 @@ Server::Server(int cluster_size, int server_idx, std::string server_info)
 
   freeaddrinfo(res);
 
-  std::println("[server@{}]: start. listen at sock={}", port, sockfd_);
+  std::println("[server@{}]: start id={}. listen at sock={}", port, server_idx, sockfd_);
   start();
 }
 
@@ -153,6 +155,7 @@ void Server::start() {
       std::println("[server@{}]: main loop state={} ----", port_,
                    StateToString(praftservice_->state().state_));
     }
+    std::cout << std::flush;
   }
 }
 
@@ -246,6 +249,7 @@ State Server::doFollowerLoop() {
           has_response = true;
         }
       }
+      //std::cout << std::endl;
     }
   }};
 
@@ -268,6 +272,7 @@ State Server::doFollowerLoop() {
   std::println("[server@{}]: ---- finish doFollower. term={}, state={} ----",
                port_, praftservice_->state().current_term_,
                StateToString(praftservice_->state().state_));
+  std::cout << std::flush;
 
   return State::Candidate;
 }
@@ -277,7 +282,10 @@ State Server::doFollowerLoop() {
 State Server::doCandidateLoop() {
   ++praftservice_->state().current_term_;
   praftservice_->state().state_ = State::Candidate;
-  praftservice_->state().voted_for_.reset();
+
+  //praftservice_->state().voted_for_.reset(); // TODO: remove
+  // vote for self
+  praftservice_->state().voted_for_ = praftservice_->state().id_;
 
   std::println("[server@{}]: ---- enter doCandidateLoop. term={} ----", port_,
                praftservice_->state().current_term_);
@@ -363,15 +371,17 @@ State Server::doCandidateLoop() {
         break;
       } else if (praftservice_->hasRequestVoteReply(buf) &&
                  praftservice_->hasVoteInRequestVoteResponse(buf)) {
+        std::println("[server@{}]: doCandidateLoop got vote in RequestVoteReply num_votes={}", port_, num_votes+1);
         std::lock_guard lck{timer_mutex_};
         ++num_votes;
         if (num_votes >= required_votes) {
-          std::println("[server@{}]: doCandidateLoop leader elected", port_);
           praftservice_->state().state_ = State::Leader;
           break;
         }
       } else if (praftservice_->hasRequestVoteRequest(buf)) {
-        sendRequestVoteResponse(buf, recv_data.si);
+        std::println("[server@{}]: doCandidateLoop do sendRequestVoteResponse", port_); 
+        bool vote_granted = sendRequestVoteResponse(buf, recv_data.si);
+        std::cerr << port_ << " granted vote " << vote_granted << std::endl;
       } else if (praftservice_->hasHeartBeatInRequest(buf)) {
         std::println("[server@{}]: got HeartBeat. CandidateLoop complete. "
                      "change state to "
@@ -391,7 +401,6 @@ State Server::doCandidateLoop() {
   [[maybe_unused]] std::cv_status status{std::cv_status::no_timeout};
   while (true) {
     // vote for self
-    praftservice_->state().voted_for_ = praftservice_->state().id_; // TODO race
     for (int i{}; i < numservers_; ++i) {
       if (i == praftservice_->state().id_) {
         continue;
@@ -423,6 +432,7 @@ State Server::doCandidateLoop() {
       praftservice_->state().current_term_,
       StateToString(praftservice_->state().state_));
 
+  std::cout << std::flush; 
   return praftservice_->state().state_;
 }
 /* ================ END CANDIDATE ============== */
@@ -432,6 +442,7 @@ State Server::doLeaderLoop() {
   std::println("[server@{}]: ---- enter doLeaderLoop. term={} ----", port_,
                praftservice_->state().current_term_);
 
+  std::cout << std::flush;
   praftservice_->state().leader_state_.next_index_.resize(numservers_);
   praftservice_->state().leader_state_.match_index_.resize(numservers_);
 
@@ -440,7 +451,7 @@ State Server::doLeaderLoop() {
 
   std::deque<Message> message_q;
   std::deque<Message> appendentriesreply_q;
-  std::deque<Command> command_q;
+  std::deque<CommandMessage> command_q;
 
   std::mutex messages_mutex;
   std::condition_variable_any messages_cv;
@@ -472,18 +483,20 @@ State Server::doLeaderLoop() {
                          &recv_si.peer_addrlen);
           if (n > 0) {
             const bool has_put_msg = pcommand_->hasPut({buf, n});
-            const bool has_ae_reply =
+            const auto ae_reply =
                 praftservice_->hasAppendEntriesReply({buf, n});
+            const bool has_ae_reply = ae_reply != std::nullopt;
 
             if (has_put_msg || has_ae_reply) {
               {
                 std::lock_guard lck{commands_mutex};
                 if (has_put_msg) {
                   // add the command locally in the commit log
-                  praftservice_->state().commit_log_.push_back(Entry{
-                      praftservice_->state().current_term_, recv_data.msg});
-                  command_q.push_back(
-                      {std::string{buf, n},
+                  praftservice_->state().commit_log_.push_back(
+                      Entry{praftservice_->state().current_term_,
+                            std::string{std::string_view{buf, n}}});
+                  command_q.emplace_back(
+                      Message{std::string{std::string_view{buf, n}},
                        {recv_si.peer_addr, recv_si.peer_addrlen}},
                       numservers_);
                 } else {
@@ -505,6 +518,8 @@ State Server::doLeaderLoop() {
     }
   }};
 
+  const size_t required_votes = (numservers_ - 1) / 2 + 1;
+
   std::jthread command_processing_thr{[&](std::stop_token stop_token) {
     while (!stop_token.stop_requested()) {
       std::unique_lock lck{commands_mutex};
@@ -518,22 +533,26 @@ State Server::doLeaderLoop() {
 
       std::string_view buf{recv_data.msg};
 
+      std::cerr << port_ << " " << "leaderLoop process appendentriesq\n"; 
       if (auto resp = praftservice_->hasAppendEntriesReply(buf)) {
         if (std::get<0>(*resp)) {
           int id = std::get<1>(*resp);
+          std::cerr << port_ << " " << "leaderLoop updateCommandQState with id " << id << '\n'; 
           {
             std::lock_guard lck{commands_mutex};
-            updateCommandQState(command_q);
+            if (!command_q.empty()) {
+              updateCommandQState(command_q, id, required_votes);
+            }
           }
           std::println("[server@{}]: entry safely replicated. commit "
                        "log size={}",
                        port_, praftservice_->state().commit_log_.size());
+          std::cout << std::flush; 
         }
       }
     }
   }};
 
-  const size_t required_votes = (numservers_ - 1) / 2 + 1;
   size_t num_responses{0};
 
   std::jthread message_processing_thr{[&](std::stop_token stop_token) {
@@ -552,7 +571,7 @@ State Server::doLeaderLoop() {
       std::string_view buf{recv_data.msg};
 
       if (praftservice_->hasHigherTerm(buf).first) {
-        std::println("[server@{}]: RequestVotes complete. found higher term. "
+        std::println("[server@{}]: leaderLoop. found higher term. "
                      "curr_term={}",
                      port_, praftservice_->state().current_term_);
         praftservice_->state().state_ = State::Follower;
@@ -562,10 +581,11 @@ State Server::doLeaderLoop() {
         timer_cv_.notify_one();
         break;
       } else if (praftservice_->hasHeartBeatInResponse(buf)) {
+        /*
         std::println("[server@{}]: Leader got heartBeatResponse. "
                      "curr_term={}",
                      port_, praftservice_->state().current_term_);
-
+        */
         std::lock_guard lck{messages_mutex};
         ++num_responses;
       }
@@ -576,9 +596,11 @@ State Server::doLeaderLoop() {
         const std::chrono::duration<double> diff = end - start;
         total += diff;
         start = end;
+        /*
         std::println("[server@{}]: ---- Leader: QUORUM established. "
                      "term={} Leader since {} diff={}----",
                      port_, praftservice_->state().current_term_, total, diff);
+        */
       }
     }
   }};
@@ -589,6 +611,7 @@ State Server::doLeaderLoop() {
   while (true) {
     if (!command_q.empty() &&
         command_q.front().num_replicated < required_votes) {
+      std::cerr << port_ << " leaderloop sendAppendEntries\n";
       for (int i{}; i < numservers_; ++i) {
         if (i == praftservice_->state().id_) {
           continue;
@@ -601,7 +624,7 @@ State Server::doLeaderLoop() {
       std::chrono::milliseconds timeout_duration{GetRandomDuration()};
       std::unique_lock lck{commands_mutex};
       [[maybe_unused]] auto cv_status =
-          timer_cv_.wait_for(lck, timeout_duration);
+          timer_cv_.wait_for(lck, timeout_duration);    
     } else {
       for (int i{}; i < numservers_; ++i) {
         if (i == praftservice_->state().id_) {
@@ -634,12 +657,14 @@ State Server::doLeaderLoop() {
       }
     }
     std::println("[server@{}]: Leader state for={}", port_, total);
-
-    return State::Follower;
   }
+  return State::Follower;
 }
 
-void Server::updateCommandQState(std::deque<Command>& command_q) {
+void Server::updateCommandQState(
+  std::deque<CommandMessage>& command_q,
+  int id,
+  int required_votes) {
   command_q.front().processed_entries[id] = true;
   ++command_q.front().num_replicated;
   if (command_q.front().num_replicated >= required_votes) {
@@ -650,6 +675,7 @@ void Server::updateCommandQState(std::deque<Command>& command_q) {
     praftservice_->state().commit_index_ =
         praftservice_->state().commit_log_.size() - 1;
   }
+}
 /* ================ END LEADER ================= */
 
 // ================= SENDERS ================= */
@@ -667,8 +693,8 @@ void Server::sendRequestVote(const ServerInfo &server_info) {
   const int last_log_index = praftservice_->state().commit_log_.size() - 1;
   const int last_log_term =
       praftservice_->state().commit_log_[last_log_index].term;
-  auto o = CreateRequestVoteRPC(fbb, vote_term, candidate_id, last_log_index,
-                                last_log_term);
+  auto o = CreateRequestVoteRPC(fbb, 55, vote_term, candidate_id, last_log_index,
+                                last_log_term);                        
   fbb.Finish(o);
 
   uint8_t *buf = fbb.GetBufferPointer();
@@ -696,9 +722,8 @@ bool Server::sendRequestVoteResponse(std::string_view request,
 
   std::println("[server@{}]: sendRequestVoteResponse to={} term={}", port_,
                preq->candidate_id(),
-
                praftservice_->state().current_term_);
-
+      
   const int term = preq->term();
   const int curr_term = praftservice_->state().current_term_;
 
@@ -714,11 +739,12 @@ bool Server::sendRequestVoteResponse(std::string_view request,
       ((!voted_for_opt || voted_for_opt.value() == preq->candidate_id()) &&
        preq->last_log_index() >= praftservice_->state().commit_index_)) {
     voted_for_opt = preq->candidate_id();
+    std::cerr << port_ <<  " " << " voted for " << preq->candidate_id() << std::flush;
     vote_granted = true;
   }
 
   flatbuffers::FlatBufferBuilder fbb{1024};
-  auto o = CreateRequestVoteRPCReply(fbb, curr_term, vote_granted);
+  auto o = CreateRequestVoteRPCReply(fbb, 66, curr_term, vote_granted);
   fbb.Finish(o);
 
   uint8_t *reply_buf = fbb.GetBufferPointer();
@@ -757,14 +783,14 @@ void Server::sendAppendEntries(const CommandMessage &message,
 
   flatbuffers::FlatBufferBuilder builder;
   auto fb_str = builder.CreateString(message.msg.c_str());
-  auto log_entry = CreateLogEntry(builder, term, fb_str);
+  auto log_entry = CreateLogEntry(builder, 44, term, fb_str);
 
   std::vector<::flatbuffers::Offset<LogEntry>> entries_v;
   entries_v.push_back(log_entry);
 
   auto entries = builder.CreateVector(entries_v);
   auto off = CreateAppendEntriesRPC(builder, term, leader_id, prev_log_index,
-                                    prev_log_term, entries, leader_commit);
+                                    prev_log_term, entries, leader_commit, 11);
   builder.Finish(off);
 
   uint8_t *buf = builder.GetBufferPointer();
@@ -819,23 +845,12 @@ void Server::sendAppendEntriesResponse(std::string_view request,
                port_, term, prev_log_index, prev_log_term, cmd);
 
   bool success{true};
-<<<<<<< HEAD
-  // cover all the false cases
-  if (praftservice_->state().current_term_ < term) {
-    std::println("[server@{}]: sendAppendEntriesResponse current_term_ < term",
-                 port_);
-    success = false;
-  }
-
-  auto &log = praftservice_->state().commit_log_;
-=======
   // 1. Reply false if term < currentTerm (§5.1)
   if (term < praftservice_->state().current_term_) {
     std::println("[server@{}]: sendAppendEntriesResponse term < current_term_", port_); 
     success = false;
   } 
   auto& log = praftservice_->state().commit_log_;
->>>>>>> d1f717c (appendEntriesReply)
 
   // 2. Reply false if log doesn’t contain an entry at prevLogIndex
   // whose term matches prevLogTerm (§5.3)
@@ -855,8 +870,6 @@ void Server::sendAppendEntriesResponse(std::string_view request,
       log.push_back({cmd_term, cmd});
     } else {
       log.push_back({cmd_term, cmd});
-<<<<<<< HEAD
-=======
     }
 
     if (leader_commit > praftservice_->state().commit_index_) {
@@ -865,14 +878,13 @@ void Server::sendAppendEntriesResponse(std::string_view request,
 
       praftservice_->state().leader_id_ = preq->leader_id();
       praftservice_->state().current_term_ = term;
->>>>>>> d1f717c (appendEntriesReply)
     }
   }
 
   flatbuffers::FlatBufferBuilder fbb{1024};
   auto o =
-      CreateAppendEntriesRPCReply(fbb, praftservice_->state().current_term_,
-                                  success, praftservice_->state().id_, 103);
+      CreateAppendEntriesRPCReply(fbb, 22, praftservice_->state().current_term_,
+                                  success, praftservice_->state().id_);
   fbb.Finish(o);
 
   uint8_t *reply_buf = fbb.GetBufferPointer();
@@ -885,6 +897,7 @@ void Server::sendAppendEntriesResponse(std::string_view request,
     std::cerr << "error sending heartbeat response\n";
   }
 
+  std::cerr << port_ << " sendAppendEntriesResponse to " << leader_id << " success " << success << std::endl; 
   std::println("[server@{}]: sendAppendEntriesResponse to={}. term={} "
                "success={} log size={}",
                port_, leader_id, praftservice_->state().current_term_, success,
@@ -900,7 +913,7 @@ void Server::sendHeartBeat(size_t server_idx) {
   */
   flatbuffers::FlatBufferBuilder fbb(1024);
   auto off = CreateAppendEntriesRPC(fbb, praftservice_->state().current_term_,
-                                    praftservice_->state().id_);
+                                    praftservice_->state().id_, 11);
   fbb.Finish(off);
 
   uint8_t *buf = fbb.GetBufferPointer();
@@ -946,7 +959,7 @@ void Server::sendHeartBeatResponse(std::string_view request,
     praftservice_->state().current_term_);
   */
   flatbuffers::FlatBufferBuilder fbb{1024};
-  auto o = CreateAppendEntriesRPCReply(fbb, curr_term, success); // TODO
+  auto o = CreateAppendEntriesRPCReply(fbb, 22, curr_term, success); // TODO
   fbb.Finish(o);
 
   uint8_t *reply_buf = fbb.GetBufferPointer();
@@ -1006,10 +1019,7 @@ int main(int argc, char **argv) {
 
   std::string serverinfo{argv[3]};
 
-<<<<<<< HEAD
-=======
   // TODO: read from the log
 
->>>>>>> d1f717c (appendEntriesReply)
   Server s{num_servers, idx, serverinfo};
 }

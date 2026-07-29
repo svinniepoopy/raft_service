@@ -26,7 +26,8 @@ struct AppendEntriesRPC FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
     VT_PREV_LOG_INDEX = 8,
     VT_PREV_LOG_TERM = 10,
     VT_ENTRIES = 12,
-    VT_LEADER_COMMIT = 14
+    VT_LEADER_COMMIT = 14,
+    VT_VERSION = 16
   };
   int32_t term() const {
     return GetField<int32_t>(VT_TERM, 0);
@@ -46,6 +47,9 @@ struct AppendEntriesRPC FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
   int32_t leader_commit() const {
     return GetField<int32_t>(VT_LEADER_COMMIT, 0);
   }
+  int32_t version() const {
+    return GetField<int32_t>(VT_VERSION, 0);
+  }
   template <bool B = false>
   bool Verify(::flatbuffers::VerifierTemplate<B> &verifier) const {
     return VerifyTableStart(verifier) &&
@@ -57,6 +61,7 @@ struct AppendEntriesRPC FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
            verifier.VerifyVector(entries()) &&
            verifier.VerifyVectorOfTables(entries()) &&
            VerifyField<int32_t>(verifier, VT_LEADER_COMMIT, 4) &&
+           VerifyField<int32_t>(verifier, VT_VERSION, 4) &&
            verifier.EndTable();
   }
 };
@@ -83,6 +88,9 @@ struct AppendEntriesRPCBuilder {
   void add_leader_commit(int32_t leader_commit) {
     fbb_.AddElement<int32_t>(AppendEntriesRPC::VT_LEADER_COMMIT, leader_commit, 0);
   }
+  void add_version(int32_t version) {
+    fbb_.AddElement<int32_t>(AppendEntriesRPC::VT_VERSION, version, 0);
+  }
   explicit AppendEntriesRPCBuilder(::flatbuffers::FlatBufferBuilder &_fbb)
         : fbb_(_fbb) {
     start_ = fbb_.StartTable();
@@ -101,8 +109,10 @@ inline ::flatbuffers::Offset<AppendEntriesRPC> CreateAppendEntriesRPC(
     int32_t prev_log_index = 0,
     int32_t prev_log_term = 0,
     ::flatbuffers::Offset<::flatbuffers::Vector<::flatbuffers::Offset<LogEntry>>> entries = 0,
-    int32_t leader_commit = 0) {
+    int32_t leader_commit = 0,
+    int32_t version = 0) {
   AppendEntriesRPCBuilder builder_(_fbb);
+  builder_.add_version(version);
   builder_.add_leader_commit(leader_commit);
   builder_.add_entries(entries);
   builder_.add_prev_log_term(prev_log_term);
@@ -119,7 +129,8 @@ inline ::flatbuffers::Offset<AppendEntriesRPC> CreateAppendEntriesRPCDirect(
     int32_t prev_log_index = 0,
     int32_t prev_log_term = 0,
     const std::vector<::flatbuffers::Offset<LogEntry>> *entries = nullptr,
-    int32_t leader_commit = 0) {
+    int32_t leader_commit = 0,
+    int32_t version = 0) {
   auto entries__ = entries ? _fbb.CreateVector<::flatbuffers::Offset<LogEntry>>(*entries) : 0;
   return CreateAppendEntriesRPC(
       _fbb,
@@ -128,7 +139,8 @@ inline ::flatbuffers::Offset<AppendEntriesRPC> CreateAppendEntriesRPCDirect(
       prev_log_index,
       prev_log_term,
       entries__,
-      leader_commit);
+      leader_commit,
+      version);
 }
 
 inline const AppendEntriesRPC *GetAppendEntriesRPC(const void *buf) {

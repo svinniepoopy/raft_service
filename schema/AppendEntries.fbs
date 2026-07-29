@@ -1,6 +1,9 @@
 include "LogEntry.fbs";
 
+// version = 11
+
 table AppendEntriesRPC {
+    version:int;
     term:int;
     leader_id:int;
     prev_log_index:int;

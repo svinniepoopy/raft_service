@@ -44,7 +44,8 @@ private:
   State doCandidateLoop();
   State doLeaderLoop();
 
-  void updateCommandQState(std::deque<Command>&);
+  void updateCommandQState(std::deque<CommandMessage> & /*command_q*/,
+                           int /*id*/, int /*required_votes*/);
 
   // senders
   void sendRequestVote(const ServerInfo&);

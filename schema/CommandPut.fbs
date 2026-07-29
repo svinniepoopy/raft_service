@@ -1,7 +1,9 @@
+
+// version 33
 table CommandPut {
+    version:int;
     key:string;
     value:int;
-    version:int; 
 }
 
 root_type CommandPut;

@@ -1,6 +1,6 @@
 table InstallSnapshotReply {
-    term:int;
     version:int;
+    term:int;
 }
 
 root_type InstallSnapshotReply;

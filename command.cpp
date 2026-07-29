@@ -22,7 +22,7 @@ bool Command::hasPut(std::string_view buf) {
   }
   */
   const CommandPut* pcmd = GetCommandPut(static_cast<const void *>(buf.data()));
-  if (pcmd != nullptr && pcmd->version() == 99) {
+  if (pcmd != nullptr && pcmd->version() == 33) {
     std::cerr << "hasPut version 1" << std::endl;
     return true;
   }

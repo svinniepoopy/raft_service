@@ -19,9 +19,13 @@ struct LogEntryBuilder;
 struct LogEntry FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
   typedef LogEntryBuilder Builder;
   enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
-    VT_TERM = 4,
-    VT_COMMAND = 6
+    VT_VERSION = 4,
+    VT_TERM = 6,
+    VT_COMMAND = 8
   };
+  int32_t version() const {
+    return GetField<int32_t>(VT_VERSION, 0);
+  }
   int32_t term() const {
     return GetField<int32_t>(VT_TERM, 0);
   }
@@ -31,6 +35,7 @@ struct LogEntry FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
   template <bool B = false>
   bool Verify(::flatbuffers::VerifierTemplate<B> &verifier) const {
     return VerifyTableStart(verifier) &&
+           VerifyField<int32_t>(verifier, VT_VERSION, 4) &&
            VerifyField<int32_t>(verifier, VT_TERM, 4) &&
            VerifyOffset(verifier, VT_COMMAND) &&
            verifier.VerifyString(command()) &&
@@ -42,6 +47,9 @@ struct LogEntryBuilder {
   typedef LogEntry Table;
   ::flatbuffers::FlatBufferBuilder &fbb_;
   ::flatbuffers::uoffset_t start_;
+  void add_version(int32_t version) {
+    fbb_.AddElement<int32_t>(LogEntry::VT_VERSION, version, 0);
+  }
   void add_term(int32_t term) {
     fbb_.AddElement<int32_t>(LogEntry::VT_TERM, term, 0);
   }
@@ -61,21 +69,25 @@ struct LogEntryBuilder {
 
 inline ::flatbuffers::Offset<LogEntry> CreateLogEntry(
     ::flatbuffers::FlatBufferBuilder &_fbb,
+    int32_t version = 0,
     int32_t term = 0,
     ::flatbuffers::Offset<::flatbuffers::String> command = 0) {
   LogEntryBuilder builder_(_fbb);
   builder_.add_command(command);
   builder_.add_term(term);
+  builder_.add_version(version);
   return builder_.Finish();
 }
 
 inline ::flatbuffers::Offset<LogEntry> CreateLogEntryDirect(
     ::flatbuffers::FlatBufferBuilder &_fbb,
+    int32_t version = 0,
     int32_t term = 0,
     const char *command = nullptr) {
   auto command__ = command ? _fbb.CreateString(command) : 0;
   return CreateLogEntry(
       _fbb,
+      version,
       term,
       command__);
 }

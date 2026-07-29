@@ -1,4 +1,7 @@
+// version 44
+
 table LogEntry {
+    version:int;
     term:int;
     command:string;
 }
