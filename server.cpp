@@ -284,8 +284,6 @@ State Server::doCandidateLoop() {
   praftservice_->state().state_ = State::Candidate;
 
   //praftservice_->state().voted_for_.reset(); // TODO: remove
-  // vote for self
-  praftservice_->state().voted_for_ = praftservice_->state().id_;
 
   std::println("[server@{}]: ---- enter doCandidateLoop. term={} ----", port_,
                praftservice_->state().current_term_);
@@ -401,6 +399,7 @@ State Server::doCandidateLoop() {
   [[maybe_unused]] std::cv_status status{std::cv_status::no_timeout};
   while (true) {
     // vote for self
+    praftservice_->state().voted_for_ = praftservice_->state().id_;
     for (int i{}; i < numservers_; ++i) {
       if (i == praftservice_->state().id_) {
         continue;
@@ -417,9 +416,10 @@ State Server::doCandidateLoop() {
       message_processing_thr.request_stop();
       break;
     }
+    // reset votedFor
+    praftservice_->state().voted_for_.reset(); 
     num_votes = 1;
     lck.unlock();
-
     {
       std::lock_guard lck{messages_mutex};
       message_q.clear();
