@@ -1,4 +1,7 @@
+#include "rand_util.h"
+
 #include <cerrno>
+#include <chrono>
 #include <csignal>
 #include <cstdlib>
 #include <cstdio>
@@ -9,17 +12,20 @@
 #include <string>
 #include <string_view>
 #include <vector>
+#include <thread>
 
 #include <unistd.h>
 #include <signal.h>
 #include <sys/types.h>
 #include <sys/wait.h>
 
+using namespace std::chrono_literals;
+
+namespace {
 constexpr int MAXCHILDREN = 12;
-
 int total_children{};
-
 pid_t children[MAXCHILDREN];
+}
 
 std::string ParseConfigFile(const char* file_name) {
     std::ifstream ifs{file_name};
@@ -89,6 +95,8 @@ int main(int argc, char** argv) {
             childpids.push_back(pid);
             children[total_children++] = pid;
         }
+        std::this_thread::sleep_for(
+            std::chrono::milliseconds{GetRandomDuration()});
     }
 
     if (signal(SIGINT, termination_handler) == SIG_ERR) { 

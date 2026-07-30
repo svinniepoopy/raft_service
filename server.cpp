@@ -3,6 +3,7 @@
 #include "command.h"
 #include "raft_service.h"
 #include "raft_state.h"
+#include "rand_util.h"
 #include "server_info.h"
 
 #include "generated/AppendEntriesReply_generated.h"
@@ -51,11 +52,6 @@ using namespace std::chrono_literals;
 
 namespace {
 constexpr size_t BUFSIZE = 1024;
-std::uniform_int_distribution<> dist(150, 300);
-std::random_device rd{};
-std::mt19937 gen(rd());
-int GetRandomDuration() { return dist(gen); }
-
 std::vector<ServerInfo> ExtractServerInfo(const std::string &si) {
   std::istringstream istr{si};
   std::vector<ServerInfo> infos;
