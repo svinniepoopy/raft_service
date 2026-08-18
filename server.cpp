@@ -31,6 +31,7 @@
 #include <mutex>
 #include <optional>
 #include <print>
+#include <fstream>
 #include <queue>
 #include <random>
 #include <sstream>
@@ -72,6 +73,7 @@ std::string StateToString(State state) {
   }
   return "Leader";
 }
+std::ofstream log_entry_ofs;
 } // end anonymous namespace
 
 Server::Server(int cluster_size, int server_idx, std::string server_info)
@@ -456,6 +458,8 @@ State Server::doLeaderLoop() {
   std::mutex commands_mutex;
   std::condition_variable_any commands_cv;
 
+  std::mutex commit_log_mutex;
+
   std::jthread message_receiver_thr_{[&](std::stop_token stop_token) {
     struct pollfd *pfds;
     pfds = static_cast<struct pollfd *>(calloc(1, sizeof(struct pollfd)));
@@ -486,16 +490,21 @@ State Server::doLeaderLoop() {
 
             if (has_put_msg || has_ae_reply) {
               {
-                std::lock_guard lck{commands_mutex};
                 if (has_put_msg) {
                   // add the command locally in the commit log
-                  praftservice_->state().commit_log_.push_back(
-                      Entry{praftservice_->state().current_term_,
-                            std::string{std::string_view{buf, n}}});
-                  command_q.emplace_back(
-                      Message{std::string{std::string_view{buf, n}},
-                       {recv_si.peer_addr, recv_si.peer_addrlen}},
-                      numservers_);
+                  {
+                    std::lock_guard lck{commit_log_mutex};
+                    praftservice_->state().commit_log_.push_back(
+                        Entry{praftservice_->state().current_term_,
+                              std::string{std::string_view{buf, n}}});
+                  }
+                  {
+                    std::lock_guard lck{commands_mutex};
+                    command_q.emplace_back(
+                        Message{std::string{std::string_view{buf, n}},
+                                {recv_si.peer_addr, recv_si.peer_addrlen}},
+                        numservers_);
+                  }
                 } else {
                   appendentriesreply_q.push_back(
                       {std::string{buf, n},
@@ -514,6 +523,44 @@ State Server::doLeaderLoop() {
       }
     }
     free(pfds);
+  }};
+
+ 
+  size_t log_size = praftservice_->state().commit_log_.size();
+  size_t last_written_index{0};
+
+  log_entry_ofs.open(std::to_string(praftservice_->state().id_),
+                         std::ios::binary | std::ios::out | std::ios::trunc);
+  if (!log_entry_ofs.is_open()) {
+    std::cerr << "failed to open log file " << port_;
+    std::exit(EXIT_FAILURE);
+  }
+  std::condition_variable_any log_writer_cv;
+  std::jthread log_writer_thread{[&](std::stop_token stop_token) {
+    while (true) {
+      {
+        std::unique_lock lck{commit_log_mutex};
+        log_writer_cv.wait(lck, [&]() {
+          return praftservice_->state().commit_log_.size() > log_size;
+        });
+        log_size = praftservice_->state().commit_log_.size();
+      }
+      auto log_entry = praftservice_->state().commit_log_[++last_written_index];
+      int voted_for = *praftservice_->state().voted_for_;
+      int current_term = praftservice_->state().current_term_;
+
+      log_entry_ofs << voted_for << ',' << current_term << ',' << log_entry.term
+                    << ',';
+
+      const CommandPut* pcmd = GetCommandPut(log_entry.command.c_str());
+      if (pcmd) {
+        log_entry_ofs << pcmd->key()->str() << ',' << pcmd->value();
+      }
+
+      log_entry_ofs << '|';
+      log_entry_ofs.flush();
+    }
+
   }};
 
   const size_t required_votes = (numservers_ - 1) / 2 + 1;
@@ -539,7 +586,7 @@ State Server::doLeaderLoop() {
           {
             std::lock_guard lck{commands_mutex};
             if (!command_q.empty()) {
-              updateCommandQState(command_q, id, required_votes);
+              updateCommandQState(command_q, id, required_votes, log_writer_cv);
             }
           }
           std::println("[server@{}]: entry safely replicated. commit "
@@ -662,7 +709,8 @@ State Server::doLeaderLoop() {
 void Server::updateCommandQState(
   std::deque<CommandMessage>& command_q,
   int id,
-  int required_votes) {
+  int required_votes,
+  std::condition_variable_any& log_writer_cv) {
   command_q.front().processed_entries[id] = true;
   ++command_q.front().num_replicated;
   if (command_q.front().num_replicated >= required_votes) {
@@ -672,6 +720,7 @@ void Server::updateCommandQState(
     // index.
     praftservice_->state().commit_index_ =
         praftservice_->state().commit_log_.size() - 1;
+    log_writer_cv.notify_one();
   }
 }
 /* ================ END LEADER ================= */
@@ -1008,6 +1057,9 @@ int proc_numeric_id{};
 
 void termination_handler(int signal) {
   std::cerr << "terminate " << proc_numeric_id << std::endl;
+  if (log_entry_ofs.is_open()) {
+    log_entry_ofs.close();
+  }
   std::exit(EXIT_FAILURE);
 }
 

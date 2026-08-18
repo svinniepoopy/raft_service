@@ -74,6 +74,7 @@ int main(int argc, char** argv) {
     static char* newenviron[] = {nullptr};
 
     std::vector<pid_t> childpids;
+    // TODO: shuffle order
     for (int i{}; i<num_servers; ++i) {
         pid_t pid = fork();
 
